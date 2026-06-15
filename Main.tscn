@@ -1,0 +1,209 @@
+[gd_scene format=3 uid="uid://c5vcnqomic4ja"]
+
+[ext_resource type="Script" uid="uid://ccd1flnpmy3lm" path="res://Main.gd" id="1_ig7tw"]
+[ext_resource type="PackedScene" uid="uid://cehdtymn5plrv" path="res://SlotUI.tscn" id="2_0xm2m"]
+[ext_resource type="Script" uid="uid://ja8vgee7rvlk" path="res://DiscardZone.gd" id="3_discard"]
+[ext_resource type="Script" path="res://ArrowLine.gd" id="4_arrow"]
+
+[node name="Main" type="Node2D" unique_id=1271513720]
+script = ExtResource("1_ig7tw")
+
+[node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=1889223523]
+
+[node name="MainBackground" type="Panel" parent="CanvasLayer" unique_id=1730307313]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MainLayout" type="VBoxContainer" parent="CanvasLayer/MainBackground" unique_id=1645648937]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 0
+alignment = 1
+
+[node name="TopSpacer" type="Control" parent="CanvasLayer/MainBackground/MainLayout" unique_id=2001000]
+custom_minimum_size = Vector2(0, 12)
+layout_mode = 2
+
+[node name="EnemySide" type="HBoxContainer" parent="CanvasLayer/MainBackground/MainLayout" unique_id=1339047512]
+layout_mode = 2
+theme_override_constants/separation = 20
+alignment = 1
+
+[node name="SlotUI" parent="CanvasLayer/MainBackground/MainLayout/EnemySide" unique_id=715795557 instance=ExtResource("2_0xm2m")]
+layout_mode = 2
+
+[node name="SlotUI2" parent="CanvasLayer/MainBackground/MainLayout/EnemySide" unique_id=107545743 instance=ExtResource("2_0xm2m")]
+layout_mode = 2
+
+[node name="SlotUI3" parent="CanvasLayer/MainBackground/MainLayout/EnemySide" unique_id=1636771609 instance=ExtResource("2_0xm2m")]
+layout_mode = 2
+
+[node name="SlotUI4" parent="CanvasLayer/MainBackground/MainLayout/EnemySide" unique_id=9990001 instance=ExtResource("2_0xm2m")]
+layout_mode = 2
+
+[node name="SlotUI5" parent="CanvasLayer/MainBackground/MainLayout/EnemySide" unique_id=9990002 instance=ExtResource("2_0xm2m")]
+layout_mode = 2
+
+[node name="MidSpacer" type="Control" parent="CanvasLayer/MainBackground/MainLayout" unique_id=2001001]
+custom_minimum_size = Vector2(0, 8)
+layout_mode = 2
+
+[node name="MiddleInfoBar" type="Panel" parent="CanvasLayer/MainBackground/MainLayout" unique_id=1947893471]
+custom_minimum_size = Vector2(0, 56)
+layout_mode = 2
+
+[node name="InfoHBox" type="HBoxContainer" parent="CanvasLayer/MainBackground/MainLayout/MiddleInfoBar" unique_id=2001002]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 20
+alignment = 1
+
+[node name="LeftSpacer" type="Control" parent="CanvasLayer/MainBackground/MainLayout/MiddleInfoBar/InfoHBox" unique_id=2001003]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ManaLabel" type="Label" parent="CanvasLayer/MainBackground/MainLayout/MiddleInfoBar/InfoHBox" unique_id=1827879917]
+layout_mode = 2
+horizontal_alignment = 1
+
+[node name="StatusToggleButton" type="Button" parent="CanvasLayer/MainBackground/MainLayout/MiddleInfoBar/InfoHBox" unique_id=2001008]
+custom_minimum_size = Vector2(120, 0)
+layout_mode = 2
+text = "My Info"
+
+[node name="EndTurnButton" type="Button" parent="CanvasLayer/MainBackground/MainLayout/MiddleInfoBar/InfoHBox" unique_id=2004276860]
+layout_mode = 2
+text = "End Turn"
+
+[node name="RightSpacer" type="Control" parent="CanvasLayer/MainBackground/MainLayout/MiddleInfoBar/InfoHBox" unique_id=2001004]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="BottomSpacer" type="Control" parent="CanvasLayer/MainBackground/MainLayout" unique_id=2001005]
+custom_minimum_size = Vector2(0, 6)
+layout_mode = 2
+
+[node name="PlayerSide" type="HBoxContainer" parent="CanvasLayer/MainBackground/MainLayout" unique_id=1525764737]
+layout_mode = 2
+theme_override_constants/separation = 20
+alignment = 1
+
+[node name="SlotUI" parent="CanvasLayer/MainBackground/MainLayout/PlayerSide" unique_id=1092804570 instance=ExtResource("2_0xm2m")]
+layout_mode = 2
+
+[node name="SlotUI2" parent="CanvasLayer/MainBackground/MainLayout/PlayerSide" unique_id=1999239244 instance=ExtResource("2_0xm2m")]
+layout_mode = 2
+
+[node name="SlotUI3" parent="CanvasLayer/MainBackground/MainLayout/PlayerSide" unique_id=1543011027 instance=ExtResource("2_0xm2m")]
+layout_mode = 2
+
+[node name="SlotUI4" parent="CanvasLayer/MainBackground/MainLayout/PlayerSide" unique_id=9990003 instance=ExtResource("2_0xm2m")]
+layout_mode = 2
+
+[node name="SlotUI5" parent="CanvasLayer/MainBackground/MainLayout/PlayerSide" unique_id=9990004 instance=ExtResource("2_0xm2m")]
+layout_mode = 2
+
+[node name="HandSpacer" type="Control" parent="CanvasLayer/MainBackground/MainLayout" unique_id=2001006]
+custom_minimum_size = Vector2(0, 4)
+layout_mode = 2
+
+[node name="HandArea" type="MarginContainer" parent="CanvasLayer/MainBackground/MainLayout" unique_id=2001007]
+custom_minimum_size = Vector2(0, 170)
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 12
+
+[node name="HandScroll" type="ScrollContainer" parent="CanvasLayer/MainBackground/MainLayout/HandArea" unique_id=4550001]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+vertical_scroll_mode = 0
+
+[node name="HandContainer" type="HBoxContainer" parent="CanvasLayer/MainBackground/MainLayout/HandArea/HandScroll" unique_id=454726733]
+layout_mode = 2
+theme_override_constants/separation = 8
+alignment = 1
+
+[node name="DiscardZone" type="Panel" parent="CanvasLayer" unique_id=4560001]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -170.0
+offset_top = -80.0
+grow_horizontal = 0
+grow_vertical = 0
+script = ExtResource("3_discard")
+
+[node name="DiscardLabel" type="Label" parent="CanvasLayer/DiscardZone" unique_id=4560002]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+text = "DISCARD"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="SplashPanel" type="Panel" parent="CanvasLayer" unique_id=3000001]
+modulate = Color(1, 1, 1, 0)
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -360.0
+offset_top = 80.0
+offset_bottom = 560.0
+grow_horizontal = 0
+mouse_filter = 2
+
+[node name="SplashArt" type="TextureRect" parent="CanvasLayer/SplashPanel" unique_id=3000002]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 5
+
+[node name="SplashName" type="Label" parent="CanvasLayer/SplashPanel" unique_id=3000003]
+layout_mode = 0
+offset_left = 4.0
+offset_top = 4.0
+offset_right = 340.0
+offset_bottom = 28.0
+theme_override_font_sizes/font_size = 18
+horizontal_alignment = 2
+
+[node name="SplashText" type="Label" parent="CanvasLayer/SplashPanel" unique_id=3000004]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_font_sizes/font_size = 48
+horizontal_alignment = 1
+vertical_alignment = 1
+autowrap_mode = 3
+
+[node name="AttackArrow" type="Node2D" parent="CanvasLayer" unique_id=150108613]
+script = ExtResource("4_arrow")
+width = 8.0
+default_color = Color(1, 0, 0, 1)

@@ -1,0 +1,82 @@
+[gd_scene format=3 uid="uid://q3l6yb16sy31"]
+
+[ext_resource type="Script" uid="uid://5jhhdnuevb4d" path="res://CardUI.gd" id="1_gf2xd"]
+
+[node name="CardUI" type="Control" unique_id=1743504199]
+custom_minimum_size = Vector2(120, 160)
+layout_mode = 3
+anchors_preset = 0
+offset_right = 120.0
+offset_bottom = 160.0
+mouse_filter = 1
+script = ExtResource("1_gf2xd")
+
+[node name="Background" type="Panel" parent="." unique_id=1299029643]
+custom_minimum_size = Vector2(120, 160)
+layout_mode = 0
+offset_right = 120.0
+offset_bottom = 160.0
+mouse_filter = 1
+
+[node name="NameLabel" type="Label" parent="." unique_id=1881466520]
+layout_mode = 0
+offset_left = 6.0
+offset_top = 4.0
+offset_right = 114.0
+offset_bottom = 22.0
+horizontal_alignment = 1
+clip_text = true
+theme_override_font_sizes/font_size = 13
+
+[node name="CostLabel" type="Label" parent="." unique_id=1712505913]
+layout_mode = 0
+offset_left = 6.0
+offset_top = 26.0
+offset_right = 58.0
+offset_bottom = 40.0
+theme_override_font_sizes/font_size = 11
+
+[node name="HpLabel" type="Label" parent="." unique_id=291487909]
+layout_mode = 0
+offset_left = 6.0
+offset_top = 42.0
+offset_right = 94.0
+offset_bottom = 56.0
+theme_override_font_sizes/font_size = 11
+
+[node name="AtkLabel" type="Label" parent="." unique_id=827211071]
+layout_mode = 0
+offset_left = 6.0
+offset_top = 58.0
+offset_right = 94.0
+offset_bottom = 72.0
+theme_override_font_sizes/font_size = 11
+
+[node name="ActionButtons" type="VBoxContainer" parent="." unique_id=40715393]
+layout_mode = 0
+offset_left = 6.0
+offset_top = 82.0
+offset_right = 114.0
+offset_bottom = 154.0
+theme_override_constants/separation = 2
+
+[node name="NormalAtkButton" type="Button" parent="ActionButtons" unique_id=2123122470]
+layout_mode = 2
+size_flags_vertical = 3
+text = "Atk"
+clip_text = true
+theme_override_font_sizes/font_size = 11
+
+[node name="Skill1Button" type="Button" parent="ActionButtons" unique_id=1884030330]
+layout_mode = 2
+size_flags_vertical = 3
+text = "-"
+clip_text = true
+theme_override_font_sizes/font_size = 11
+
+[node name="Skill2Button" type="Button" parent="ActionButtons" unique_id=1917541539]
+layout_mode = 2
+size_flags_vertical = 3
+text = "-"
+clip_text = true
+theme_override_font_sizes/font_size = 11

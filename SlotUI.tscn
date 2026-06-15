@@ -1,0 +1,10 @@
+[gd_scene format=3 uid="uid://cehdtymn5plrv"]
+
+[ext_resource type="Script" uid="uid://biywjl1ieo4v1" path="res://SlotUI.gd" id="1_n7s0y"]
+
+[node name="SlotUI" type="Button" unique_id=715795557]
+custom_minimum_size = Vector2(120, 160)
+offset_right = 136.0
+offset_bottom = 176.0
+mouse_filter = 1
+script = ExtResource("1_n7s0y")

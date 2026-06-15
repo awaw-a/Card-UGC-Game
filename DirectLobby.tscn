@@ -1,0 +1,68 @@
+[gd_scene format=3 uid="uid://cjxyb0w8icism"]
+
+[ext_resource type="Script" uid="uid://7imbmsilgdjm" path="res://DirectLobby.gd" id="1_dl"]
+
+[node name="DirectLobby" type="Control" unique_id=1000001]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_dl")
+
+[node name="Panel" type="Panel" parent="." unique_id=1000002]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -200.0
+offset_top = -150.0
+offset_right = 200.0
+offset_bottom = 150.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="VBoxContainer" type="VBoxContainer" parent="Panel" unique_id=1000003]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 12
+
+[node name="TitleLabel" type="Label" parent="Panel/VBoxContainer" unique_id=1000004]
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "Direct Connect"
+horizontal_alignment = 1
+
+[node name="Separator" type="HSeparator" parent="Panel/VBoxContainer" unique_id=1000005]
+layout_mode = 2
+
+[node name="StatusLabel" type="Label" parent="Panel/VBoxContainer" unique_id=1000006]
+layout_mode = 2
+horizontal_alignment = 1
+
+[node name="HostButton" type="Button" parent="Panel/VBoxContainer" unique_id=1000007]
+layout_mode = 2
+text = "Host Game"
+
+[node name="IPLabel" type="Label" parent="Panel/VBoxContainer" unique_id=1000008]
+layout_mode = 2
+text = "Join by IP:"
+
+[node name="IPInput" type="LineEdit" parent="Panel/VBoxContainer" unique_id=1000009]
+layout_mode = 2
+placeholder_text = "127.0.0.1"
+
+[node name="JoinButton" type="Button" parent="Panel/VBoxContainer" unique_id=1000010]
+layout_mode = 2
+text = "Join Game"
+
+[node name="BackButton" type="Button" parent="Panel/VBoxContainer" unique_id=1000011]
+layout_mode = 2
+text = "Back"

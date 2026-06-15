@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Card UGC Game · 自定义卡牌对战</title>
+<meta name="description" content="一款以游戏内引擎自定义卡牌为核心的卡牌对战游戏，支持热座、P2P 局域网与服务器联机三种模式。" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg-0: #070b14;
+    --bg-1: #0b1220;
+    --bg-2: #111b2e;
+    --glass: rgba(140, 200, 255, 0.06);
+    --glass-strong: rgba(140, 200, 255, 0.12);
+    --border: rgba(150, 205, 255, 0.18);
+    --border-strong: rgba(150, 205, 255, 0.35);
+    --accent: #7cc4ff;
+    --accent-2: #4f9fe8;
+    --accent-glow: rgba(124, 196, 255, 0.45);
+    --text: #e8f1fb;
+    --text-dim: #9fb2c9;
+    --text-faint: #6b7e96;
+    --radius: 16px;
+    --maxw: 1120px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: "Noto Sans SC", "Inter", system-ui, sans-serif;
+    background: var(--bg-0);
+    color: var(--text);
+    line-height: 1.7;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ambient background */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(900px 600px at 75% -10%, rgba(79, 159, 232, 0.20), transparent 60%),
+      radial-gradient(700px 500px at 10% 20%, rgba(124, 196, 255, 0.12), transparent 55%),
+      radial-gradient(800px 800px at 50% 110%, rgba(60, 110, 180, 0.14), transparent 60%),
+      linear-gradient(180deg, var(--bg-0), var(--bg-1) 40%, var(--bg-0));
+    z-index: -2;
+  }
+  /* subtle grid overlay */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(124, 196, 255, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(124, 196, 255, 0.035) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(circle at 50% 30%, black, transparent 80%);
+    z-index: -1;
+  }
+
+  a { color: inherit; text-decoration: none; }
+  .wrap { width: 100%; max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+  .eyebrow {
+    font-family: "Inter", sans-serif;
+    font-weight: 700;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    font-size: 12px;
+    color: var(--accent);
+    margin-bottom: 14px;
+    display: inline-block;
+  }
+
+  /* ---------- NAV ---------- */
+  header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    background: rgba(7, 11, 20, 0.6);
+    border-bottom: 1px solid var(--border);
+  }
+  nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 64px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+  }
+  .brand .logo {
+    width: 30px; height: 30px;
+    border-radius: 8px;
+    background: linear-gradient(145deg, var(--accent), var(--accent-2));
+    box-shadow: 0 0 18px var(--accent-glow);
+    display: grid; place-items: center;
+    font-family: "Inter"; font-size: 16px; font-weight: 800; color: #04101e;
+  }
+  .nav-links { display: flex; gap: 28px; font-size: 14px; color: var(--text-dim); }
+  .nav-links a { transition: color .2s; }
+  .nav-links a:hover { color: var(--accent); }
+  .nav-cta {
+    font-size: 14px; font-weight: 600;
+    padding: 8px 18px;
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    color: var(--text);
+    transition: all .25s;
+  }
+  .nav-cta:hover { background: var(--glass-strong); box-shadow: 0 0 18px var(--accent-glow); }
+  .menu-toggle { display: none; background: none; border: none; color: var(--text); font-size: 24px; cursor: pointer; }
+
+  /* ---------- HERO ---------- */
+  .hero { padding: 110px 0 90px; position: relative; }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1.1fr 0.9fr;
+    gap: 56px;
+    align-items: center;
+  }
+  .hero h1 {
+    font-family: "Inter", "Noto Sans SC", sans-serif;
+    font-size: clamp(40px, 6vw, 74px);
+    line-height: 1.02;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    background: linear-gradient(180deg, #ffffff, #a9d6ff 90%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    margin-bottom: 6px;
+  }
+  .hero .sub-cn {
+    font-size: clamp(18px, 2.4vw, 24px);
+    color: var(--text-dim);
+    font-weight: 500;
+    margin-bottom: 26px;
+  }
+  .hero p.lead { color: var(--text-dim); font-size: 16px; max-width: 520px; margin-bottom: 34px; }
+  .hero-actions { display: flex; gap: 16px; flex-wrap: wrap; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 14px 28px;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 15px;
+    cursor: pointer;
+    transition: all .25s;
+    border: 1px solid transparent;
+  }
+  .btn-primary {
+    background: linear-gradient(145deg, var(--accent), var(--accent-2));
+    color: #04101e;
+    box-shadow: 0 6px 28px var(--accent-glow);
+  }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 36px var(--accent-glow); }
+  .btn-ghost {
+    background: var(--glass);
+    border: 1px solid var(--border-strong);
+    color: var(--text);
+  }
+  .btn-ghost:hover { background: var(--glass-strong); }
+
+  /* hero visual */
+  .hero-visual { position: relative; height: 420px; }
+  .hero-card {
+    position: absolute;
+    border-radius: 18px;
+    border: 1px solid var(--border-strong);
+    background:
+      linear-gradient(160deg, rgba(124,196,255,0.16), rgba(79,159,232,0.04));
+    backdrop-filter: blur(6px);
+    box-shadow: 0 20px 50px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12);
+    overflow: hidden;
+  }
+  .hero-card img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: .92; }
+  .hc1 { width: 230px; height: 320px; left: 30%; top: 20px; transform: rotate(-8deg); z-index: 3; }
+  .hc2 { width: 210px; height: 296px; left: 4%; top: 70px; transform: rotate(-2deg); z-index: 2; opacity: .82; }
+  .hc3 { width: 210px; height: 296px; right: 0; top: 90px; transform: rotate(7deg); z-index: 2; opacity: .82; }
+
+  /* ---------- SECTION SHELL ---------- */
+  section { padding: 80px 0; position: relative; }
+  .section-head { text-align: center; max-width: 680px; margin: 0 auto 54px; }
+  .section-head h2 {
+    font-size: clamp(26px, 3.4vw, 38px);
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    margin-bottom: 12px;
+  }
+  .section-head p { color: var(--text-dim); font-size: 16px; }
+
+  /* ---------- FEATURES ---------- */
+  .feature-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 22px;
+  }
+  .card {
+    background: var(--glass);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 30px 26px;
+    transition: all .3s;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(400px 200px at 50% -40%, var(--glass-strong), transparent 70%);
+    opacity: 0; transition: opacity .3s;
+  }
+  .card:hover { transform: translateY(-4px); border-color: var(--border-strong); box-shadow: 0 16px 40px rgba(0,0,0,0.4); }
+  .card:hover::before { opacity: 1; }
+  .card .ic {
+    width: 46px; height: 46px; border-radius: 12px;
+    display: grid; place-items: center;
+    background: var(--glass-strong);
+    border: 1px solid var(--border);
+    margin-bottom: 18px;
+    font-size: 22px;
+  }
+  .card h3 { font-size: 19px; font-weight: 700; margin-bottom: 8px; }
+  .card p { color: var(--text-dim); font-size: 14.5px; }
+
+  /* ---------- MODES ---------- */
+  .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
+  .mode {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 34px 28px;
+    background: linear-gradient(180deg, var(--glass), transparent);
+    position: relative;
+  }
+  .mode .tag {
+    font-family: "Inter"; font-size: 12px; letter-spacing: .2em; font-weight: 700;
+    color: var(--accent); text-transform: uppercase;
+  }
+  .mode h3 { font-size: 22px; font-weight: 800; margin: 10px 0 14px; }
+  .mode ul { list-style: none; }
+  .mode li { color: var(--text-dim); font-size: 14.5px; padding: 6px 0 6px 22px; position: relative; }
+  .mode li::before { content: "◈"; position: absolute; left: 0; color: var(--accent-2); font-size: 12px; top: 8px; }
+  .mode .num {
+    position: absolute; top: 22px; right: 26px;
+    font-family: "Inter"; font-weight: 800; font-size: 40px;
+    color: var(--glass-strong);
+    -webkit-text-stroke: 1px var(--border-strong);
+  }
+
+  /* ---------- DOWNLOAD ---------- */
+  .download-wrap {
+    border: 1px solid var(--border-strong);
+    border-radius: 24px;
+    background: linear-gradient(160deg, rgba(124,196,255,0.10), rgba(11,18,32,0.6));
+    padding: 48px;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+  .download-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 22px; margin-top: 30px; }
+  .dl-card {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 18px;
+    padding: 24px 26px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--glass);
+    transition: all .25s;
+  }
+  .dl-card:hover { border-color: var(--border-strong); background: var(--glass-strong); }
+  .dl-card .meta .plat { font-weight: 700; font-size: 17px; display: flex; align-items: center; gap: 10px; }
+  .dl-card .meta .note { color: var(--text-faint); font-size: 13px; margin-top: 4px; }
+  .dl-note { text-align: center; color: var(--text-faint); font-size: 13px; margin-top: 26px; }
+  .dl-note .warn { color: var(--accent); }
+
+  /* ---------- FOOTER ---------- */
+  footer { border-top: 1px solid var(--border); padding: 50px 0 40px; margin-top: 40px; }
+  .footer-grid { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 30px; }
+  .footer-grid .col h4 { font-size: 14px; margin-bottom: 14px; color: var(--text); }
+  .footer-grid .col a { display: block; color: var(--text-dim); font-size: 14px; padding: 4px 0; transition: color .2s; }
+  .footer-grid .col a:hover { color: var(--accent); }
+  .copyright { margin-top: 36px; color: var(--text-faint); font-size: 13px; text-align: center; border-top: 1px solid var(--border); padding-top: 24px; }
+
+  /* ---------- RESPONSIVE ---------- */
+  @media (max-width: 900px) {
+    .hero-grid { grid-template-columns: 1fr; }
+    .hero-visual { height: 340px; margin-top: 20px; }
+    .feature-grid, .modes, .download-grid { grid-template-columns: 1fr; }
+    .nav-links { display: none; }
+    .menu-toggle { display: block; }
+    .nav-links.open {
+      display: flex; flex-direction: column; position: absolute; top: 64px; left: 0; right: 0;
+      background: rgba(7,11,20,0.97); padding: 20px 24px; border-bottom: 1px solid var(--border); gap: 16px;
+    }
+    .download-wrap { padding: 30px 22px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <nav>
+      <a class="brand" href="#top">
+        <span class="logo">C</span>
+        <span>Card UGC Game</span>
+      </a>
+      <div class="nav-links" id="navLinks">
+        <a href="#about">关于</a>
+        <a href="#features">特性</a>
+        <a href="#modes">游戏模式</a>
+        <a href="#download">下载</a>
+      </div>
+      <a class="nav-cta" href="#download">立即下载</a>
+      <button class="menu-toggle" id="menuToggle" aria-label="菜单">☰</button>
+    </nav>
+  </div>
+</header>
+
+<!-- HERO -->
+<section class="hero" id="top">
+  <div class="wrap hero-grid">
+    <div class="hero-text">
+      <span class="eyebrow">Build · Battle · Share</span>
+      <h1>CARD UGC GAME</h1>
+      <div class="sub-cn">自由创造你的卡牌，与对手同台对决</div>
+      <p class="lead">
+        内置卡牌引擎，让你无需编程即可设计专属卡牌与技能。完成后，约上好友——
+        无论是同坐一台电脑的热座对战、局域网直连，还是通过服务器远程联机，随时开局。
+      </p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="#download">⬇ 下载 Windows 版</a>
+        <a class="btn btn-ghost" href="#features">了解更多</a>
+      </div>
+    </div>
+    <div class="hero-visual">
+      <div class="hero-card hc2"><img src="assets/card-2.png" alt="卡牌预览" /></div>
+      <div class="hero-card hc3"><img src="assets/card-3.png" alt="卡牌预览" /></div>
+      <div class="hero-card hc1"><img src="assets/card-1.png" alt="卡牌预览" /></div>
+    </div>
+  </div>
+</section>
+
+<!-- ABOUT -->
+<section id="about">
+  <div class="wrap section-head">
+    <span class="eyebrow">About</span>
+    <h2>一款属于创作者的卡牌对战游戏</h2>
+    <p>核心玩法围绕「自定义」展开。游戏内置完整的卡牌与技能编辑器，你设计的每一张卡都能直接带进对局，与他人一较高下。</p>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features" style="padding-top:0;">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Features</span>
+      <h2>核心特性</h2>
+      <p>从创作到对战，完整闭环。</p>
+    </div>
+    <div class="feature-grid">
+      <div class="card">
+        <div class="ic">🛠️</div>
+        <h3>游戏内卡牌引擎</h3>
+        <p>无需写代码，在游戏里直接编辑卡牌属性、外观与技能效果，所见即所得。</p>
+      </div>
+      <div class="card">
+        <div class="ic">✨</div>
+        <h3>可视化技能编辑</h3>
+        <p>通过技能编辑器组合触发条件与效果，打造独一无二的卡牌机制与连锁玩法。</p>
+      </div>
+      <div class="card">
+        <div class="ic">🎴</div>
+        <h3>专属卡组收藏</h3>
+        <p>管理你创作的卡牌库，构筑个性化卡组，随时调整、随时投入对战。</p>
+      </div>
+      <div class="card">
+        <div class="ic">⚔️</div>
+        <h3>策略对战</h3>
+        <p>回合制对局考验布局与时机，技能联动带来丰富的战术深度。</p>
+      </div>
+      <div class="card">
+        <div class="ic">🌐</div>
+        <h3>三种联机模式</h3>
+        <p>热座、P2P 局域网、服务器联机自由选择，线上线下都能开战。</p>
+      </div>
+      <div class="card">
+        <div class="ic">🌍</div>
+        <h3>多语言界面</h3>
+        <p>内置本地化支持，界面与卡牌描述随语言切换，体验顺畅。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- MODES -->
+<section id="modes">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Game Modes</span>
+      <h2>三种对战模式</h2>
+      <p>无论身边有没有网络，总有一种方式适合你和你的对手。</p>
+    </div>
+    <div class="modes">
+      <div class="mode">
+        <span class="num">01</span>
+        <span class="tag">Hot Seat</span>
+        <h3>热座模式</h3>
+        <ul>
+          <li>两名玩家共用一台设备轮流操作</li>
+          <li>无需任何网络连接</li>
+          <li>面对面对战，适合朋友聚会</li>
+        </ul>
+      </div>
+      <div class="mode">
+        <span class="num">02</span>
+        <span class="tag">P2P LAN</span>
+        <h3>P2P 局域网联机</h3>
+        <ul>
+          <li>同一局域网内直连对战</li>
+          <li>点对点连接，低延迟无需服务器</li>
+          <li>卡牌资源在玩家之间同步传输</li>
+        </ul>
+      </div>
+      <div class="mode">
+        <span class="num">03</span>
+        <span class="tag">Server</span>
+        <h3>服务器联机</h3>
+        <ul>
+          <li>通过服务器与远程玩家对战</li>
+          <li>跨网络匹配，随时随地开局</li>
+          <li>稳定的房间与连接管理</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DOWNLOAD -->
+<section id="download">
+  <div class="wrap">
+    <div class="download-wrap">
+      <div class="section-head" style="margin-bottom:8px;">
+        <span class="eyebrow">Download</span>
+        <h2>获取游戏</h2>
+        <p>当前提供 Windows 版本，下载解压即可运行。</p>
+      </div>
+      <div class="download-grid">
+        <a class="dl-card" href="#" download>
+          <div class="meta">
+            <div class="plat">🪟 Windows 10 / 11</div>
+            <div class="note">压缩包 · ZIP · x86_64</div>
+          </div>
+          <span class="btn btn-primary">下载</span>
+        </a>
+        <a class="dl-card" href="#" download>
+          <div class="meta">
+            <div class="plat">🪟 Windows 安装包</div>
+            <div class="note">安装程序 · Installer</div>
+          </div>
+          <span class="btn btn-ghost">下载</span>
+        </a>
+      </div>
+      <p class="dl-note">
+        <span class="warn">⚠️ 提示：</span>
+        首次运行若被杀毒软件拦截，请添加信任后再启动。下载链接请替换为你的实际发布地址（如 GitHub Releases / itch.io）。
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="wrap">
+    <div class="footer-grid">
+      <div class="col" style="max-width:300px;">
+        <a class="brand" href="#top" style="margin-bottom:14px;">
+          <span class="logo">C</span><span>Card UGC Game</span>
+        </a>
+        <p style="color:var(--text-dim);font-size:14px;">
+          自由创造卡牌，自由对战。一款由创作者驱动的卡牌对战游戏。
+        </p>
+      </div>
+      <div class="col">
+        <h4>导航</h4>
+        <a href="#about">关于游戏</a>
+        <a href="#features">核心特性</a>
+        <a href="#modes">游戏模式</a>
+        <a href="#download">下载</a>
+      </div>
+      <div class="col">
+        <h4>联系 & 反馈</h4>
+        <a href="#">问题反馈</a>
+        <a href="#">更新日志</a>
+        <a href="#">官方社区</a>
+      </div>
+    </div>
+    <div class="copyright">
+      © 2026 Card UGC Game. Made with Godot Engine.
+    </div>
+  </div>
+</footer>
+
+<script>
+  const toggle = document.getElementById('menuToggle');
+  const links = document.getElementById('navLinks');
+  toggle.addEventListener('click', () => links.classList.toggle('open'));
+  links.querySelectorAll('a').forEach(a => a.addEventListener('click', () => links.classList.remove('open')));
+</script>
+
+</body>
+</html>

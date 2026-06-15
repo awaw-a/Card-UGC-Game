@@ -1,0 +1,30 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="CardUGCGame"
+run/main_scene="uid://dplip6drcqgp1"
+config/features=PackedStringArray("4.6", "Forward Plus")
+
+[autoload]
+
+PlayerData="*uid://bluk0ihmmqv4x"
+EventBus="*uid://duavhufhthawd"
+NetworkManager="*res://NetworkManager.gd"
+Locale="*res://Locale.gd"
+
+[physics]
+
+3d/physics_engine="Jolt Physics"
+
+[rendering]
+
+rendering_device/driver.windows="d3d12"

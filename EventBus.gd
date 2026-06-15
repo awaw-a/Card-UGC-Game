@@ -1,0 +1,89 @@
+extends Node
+
+# ============================================
+# Global event bus
+# ============================================
+
+# Card events
+@warning_ignore("unused_signal")
+signal card_drawn(amount: int)
+@warning_ignore("unused_signal")
+signal card_died(card: CardData, slot: int, side: String)
+@warning_ignore("unused_signal")
+signal card_summoned(card: CardData, slot: int, side: String)
+
+# Combat events
+@warning_ignore("unused_signal")
+signal attack_declared(attacker: CardData, victim: CardData, atk_slot: int, def_slot: int)
+@warning_ignore("unused_signal")
+signal hp_changed(target: CardData, delta: int, new_hp: int)
+@warning_ignore("unused_signal")
+signal skill_triggered(skill_name: String, source: CardData)
+
+# Turn events
+@warning_ignore("unused_signal")
+signal turn_started(turn: int)
+@warning_ignore("unused_signal")
+signal turn_ended(turn: int)
+@warning_ignore("unused_signal")
+signal enemy_turn_started()
+@warning_ignore("unused_signal")
+signal enemy_turn_finished()
+
+# Game events
+@warning_ignore("unused_signal")
+signal game_over(result: String)
+@warning_ignore("unused_signal")
+signal game_started()
+
+# Network RPC relay signals
+@warning_ignore("unused_signal")
+signal rpc_summon_received(hand_index: int, slot_index: int, player: int)
+@warning_ignore("unused_signal")
+signal rpc_summon_skill_received(slot_index: int, skill_index: int, target_slot: int, player: int)
+@warning_ignore("unused_signal")
+signal rpc_attack_received(source_slot: int, target_slot: int, player: int)
+@warning_ignore("unused_signal")
+signal rpc_activate_skill_received(slot_index: int, skill_index: int, target_slot: int, player: int)
+@warning_ignore("unused_signal")
+signal rpc_end_turn_received(player: int)
+@warning_ignore("unused_signal")
+signal rpc_discard_received(location: String, index: int, player: int)
+@warning_ignore("unused_signal")
+signal rpc_move_received(source_slot: int, target_slot: int, player: int)
+@warning_ignore("unused_signal")
+signal rpc_targeting_arrow_received(source_slot: int, target_slot: int, player: int)
+@warning_ignore("unused_signal")
+signal rpc_ready_received(card_data_list: Array)
+@warning_ignore("unused_signal")
+signal rpc_card_art_received(card_index: int, ext: String, bytes: PackedByteArray, total: int)
+@warning_ignore("unused_signal")
+signal rpc_card_art_manifest_received(total: int)
+@warning_ignore("unused_signal")
+signal rpc_card_art_ack_received(card_index: int, total: int)
+@warning_ignore("unused_signal")
+signal rpc_splash_received(player: int, slot_index: int)
+@warning_ignore("unused_signal")
+signal rpc_initial_state_received(state: Dictionary)
+@warning_ignore("unused_signal")
+signal rpc_initial_state_requested(peer_id: int)
+@warning_ignore("unused_signal")
+signal rpc_authority_state_received(state: Dictionary)
+@warning_ignore("unused_signal")
+signal rpc_intent_summon_received(hand_index: int, slot_index: int, player: int)
+@warning_ignore("unused_signal")
+signal rpc_intent_summon_skill_received(slot_index: int, skill_index: int, target_slot: int, player: int)
+@warning_ignore("unused_signal")
+signal rpc_intent_attack_received(source_slot: int, target_slot: int, player: int)
+@warning_ignore("unused_signal")
+signal rpc_intent_activate_skill_received(slot_index: int, skill_index: int, target_slot: int, player: int)
+@warning_ignore("unused_signal")
+signal rpc_intent_end_turn_received(player: int)
+@warning_ignore("unused_signal")
+signal rpc_intent_discard_received(location: String, index: int, player: int)
+@warning_ignore("unused_signal")
+signal rpc_intent_move_received(source_slot: int, target_slot: int, player: int)
+
+# Room-code lobby
+@warning_ignore("unused_signal")
+signal server_assigned(number: int)

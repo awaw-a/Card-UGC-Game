@@ -1,6 +1,10 @@
 class_name SkillEngine
 extends RefCounted
 
+const _TargetResolver = preload("res://SkillTargetResolver.gd")
+const _EffectApplier = preload("res://SkillEffectApplier.gd")
+const _TextFormatter = preload("res://SkillTextFormatter.gd")
+
 const MAX_HAND_SIZE = 6
 
 # ============================================
@@ -17,27 +21,39 @@ const TARGET_SINGLE       := "target_single"
 const TARGET_SIDES        := "target_sides"
 const TARGET_SELF         := "self"
 const TARGET_SELF_SIDES   := "self_sides"
+const TARGET_ALL          := "all"
 const TARGET_ALL_ENEMIES  := "all_enemies"
 const TARGET_ALL_ALLIES   := "all_allies"
 const TARGET_MALE         := "target_male"
 const TARGET_FEMALE       := "target_female"
 const TARGET_NONHUMAN     := "target_nonhuman"
 
+const TARGET_SIDE_ENEMY   := "enemy"
+const TARGET_SIDE_ALLY    := "ally"
+const TARGET_SIDE_ALL     := "all"
+
 const EFFECT_DAMAGE       := "damage"
 const EFFECT_HEAL         := "heal"
 const EFFECT_ADD_BUFF     := "add_buff"
 const EFFECT_DRAW_CARDS   := "draw_cards"
-const EFFECT_SHIELD        := "shield"
+const EFFECT_SHIELD       := "shield"
 const EFFECT_CHARM        := "charm"
-const BUFF_SILENCE         := "silence"
-const BUFF_MISFORTUNE      := "misfortune"
+const EFFECT_LIFESTEAL_DAMAGE := "lifesteal_damage"
+const EFFECT_EXECUTE      := "execute"
+const EFFECT_CLEANSE      := "cleanse"
+const EFFECT_DISPEL       := "dispel"
+const EFFECT_GAIN_MANA    := "gain_mana"
+const EFFECT_GAIN_ATTACK  := "gain_attack"
+const EFFECT_GAIN_MAX_HP  := "gain_max_hp"
+const BUFF_SILENCE        := "silence"
+const BUFF_MISFORTUNE     := "misfortune"
 
 const BUFF_ATK_BOOST        := "atk_boost"
 const BUFF_REGEN            := "regen"
 const BUFF_MANA_REFUND      := "mana_refund"
 const BUFF_THORNS           := "thorns"
 const BUFF_DAMAGE_REDUCTION := "damage_reduction"
-const BUFF_TAUNT           := "taunt"
+const BUFF_TAUNT            := "taunt"
 
 # Dynamic value variables (resolved at execution time from skill context).
 const VAR_FIELD_TOTAL   := "field_total"
@@ -53,10 +69,194 @@ const VALUE_VARS := [
 	VAR_EMPTY_ALLY, VAR_EMPTY_ENEMY, VAR_HAND_COUNT, VAR_MANA_CURRENT,
 ]
 
+const CONDITION_NONE            := "none"
+const CONDITION_SOURCE_HP_PCT   := "source_hp_pct"
+const CONDITION_TARGET_HP_PCT   := "target_hp_pct"
+const CONDITION_FIELD_ALLY      := "field_ally_count"
+const CONDITION_FIELD_ENEMY     := "field_enemy_count"
+const CONDITION_HAND_COUNT      := "hand_count"
+const CONDITION_MANA_CURRENT    := "mana_current"
+const CONDITION_TARGET_HAS_BUFF := "target_has_buff"
+
+const CONDITION_OP_GTE := ">="
+const CONDITION_OP_LTE := "<="
+const CONDITION_OP_EQ  := "=="
+
+const CONDITION_TYPES := [
+	CONDITION_NONE, CONDITION_SOURCE_HP_PCT, CONDITION_TARGET_HP_PCT,
+	CONDITION_FIELD_ALLY, CONDITION_FIELD_ENEMY, CONDITION_HAND_COUNT,
+	CONDITION_MANA_CURRENT, CONDITION_TARGET_HAS_BUFF,
+]
+const CONDITION_OPS := [CONDITION_OP_GTE, CONDITION_OP_LTE, CONDITION_OP_EQ]
+
 
 # ============================================
 # Main entry
 # ============================================
+
+static func trigger_skills(trigger: String, source_card: CardData, context: Dictionary) -> void:
+	if source_card == null or source_card.skills.is_empty():
+		return
+	if source_card.is_silenced():
+		return
+	var trigger_context := context.duplicate()
+	trigger_context["trigger"] = trigger
+
+	for skill in source_card.skills:
+		var skill_dict: Dictionary = skill
+		if skill_dict.get("trigger", "") == trigger and _passes_skill_roll(skill_dict, source_card, trigger_context):
+			_execute_skill(skill_dict, source_card, trigger_context)
+
+
+static func trigger_single_skill(card: CardData, skill_index: int, context: Dictionary) -> void:
+	if card == null or skill_index < 0 or skill_index >= card.skills.size():
+		return
+	if card.is_silenced():
+		return
+	var skill_dict: Dictionary = card.skills[skill_index]
+	var single_context := context.duplicate()
+	single_context["trigger"] = skill_dict.get("trigger", "")
+	if _passes_skill_roll(skill_dict, card, single_context):
+		_execute_skill(skill_dict, card, single_context)
+
+
+static func _execute_skill(skill: Dictionary, source_card: CardData, context: Dictionary) -> void:
+	var skill_name: String = skill.get("skill_name", "???")
+	for eff in _effects_for_skill(skill):
+		var eff_dict: Dictionary = eff
+		if not _passes_effect_roll(eff_dict, source_card, context):
+			continue
+
+		var target_str: String = eff_dict.get("target", TARGET_SINGLE)
+		var target_side: String = eff_dict.get("target_side", _TargetResolver.default_target_side(target_str))
+		var effect_str: String = eff_dict.get("effect", EFFECT_DAMAGE)
+		var value: int = _resolve_value(eff_dict, source_card, context)
+		var targets: Array = _TargetResolver.resolve_targets(target_str, source_card, context, target_side)
+		targets = _limit_random_targets(targets, int(eff_dict.get("random_count", 0)), context)
+
+		if _is_enemy_effect_blocked_on_turn_one(targets, source_card, context):
+			print("[SkillEngine] Turn 1: '%s' enemy-targeting effect skipped" % skill_name)
+			continue
+
+		print("[SkillEngine] %s: %s -> %s x%d on %d target(s)" % [skill_name, effect_str, target_str, value, targets.size()])
+		var effect_context := context.duplicate()
+		effect_context["source_card"] = source_card
+		for target_card in targets:
+			if target_card == null or not target_card.is_alive():
+				continue
+			if not _passes_effect_condition(eff_dict, source_card, target_card, context):
+				continue
+			_EffectApplier.apply_effect(effect_str, target_card, value, eff_dict, effect_context)
+
+
+static func _effects_for_skill(skill: Dictionary) -> Array:
+	var effects: Array = skill.get("effects", [])
+	if not effects.is_empty():
+		return effects
+	return [{
+		"target": skill.get("target", TARGET_SINGLE),
+		"target_side": skill.get("target_side", TARGET_SIDE_ALL),
+		"effect": skill.get("effect", EFFECT_DAMAGE),
+		"value": skill.get("value", 1),
+		"buff_id": skill.get("buff_id", ""),
+		"duration": skill.get("duration", 0),
+	}]
+
+
+# ============================================
+# Chance and targeting rules
+# ============================================
+
+static func _passes_skill_roll(skill: Dictionary, source_card: CardData, context: Dictionary) -> bool:
+	var prob: int = skill.get("probability", 100)
+	var misfortune: int = source_card.get_misfortune()
+	if misfortune > 0:
+		prob = max(0, prob - misfortune)
+		print("[SkillEngine] %s: misfortune -%d%% (eff: %d%%)" % [skill.get("skill_name", "???"), misfortune, prob])
+	if prob < 100 and _roll_percent(context) > float(prob):
+		print("[SkillEngine] %s: %d%% roll failed — skipped" % [skill.get("skill_name", "???"), prob])
+		return false
+	return true
+
+
+static func _passes_effect_roll(eff: Dictionary, source_card: CardData, context: Dictionary) -> bool:
+	var prob: int = eff.get("probability", 100)
+	var misfortune: int = source_card.get_misfortune()
+	if misfortune > 0:
+		prob = max(0, prob - misfortune)
+	if prob < 100 and _roll_percent(context) > float(prob):
+		print("[SkillEngine] Effect skipped: %d%% roll failed" % prob)
+		return false
+	return true
+
+
+static func _passes_effect_condition(eff: Dictionary, source_card: CardData, target_card: CardData, context: Dictionary) -> bool:
+	var condition_type: String = eff.get("condition_type", CONDITION_NONE)
+	if condition_type == "" or condition_type == CONDITION_NONE:
+		return true
+	var op: String = eff.get("condition_op", CONDITION_OP_GTE)
+	if condition_type == CONDITION_TARGET_HAS_BUFF:
+		var buff_id: String = eff.get("condition_buff_id", "")
+		return buff_id != "" and _card_has_buff(target_card, buff_id)
+	var actual: int = _condition_value(condition_type, source_card, target_card, context)
+	var expected: int = int(eff.get("condition_value", 0))
+	return _compare_condition(actual, expected, op)
+
+
+static func _condition_value(condition_type: String, source_card: CardData, target_card: CardData, context: Dictionary) -> int:
+	match condition_type:
+		CONDITION_SOURCE_HP_PCT:
+			return _hp_percent(source_card)
+		CONDITION_TARGET_HP_PCT:
+			return _hp_percent(target_card)
+		CONDITION_FIELD_ALLY:
+			return _count_cards(context.get("player_field"))
+		CONDITION_FIELD_ENEMY:
+			return _count_cards(context.get("enemy_field"))
+		CONDITION_HAND_COUNT:
+			var hand: Array = context.get("active_hand", [])
+			return hand.size() if hand != null else 0
+		CONDITION_MANA_CURRENT:
+			var pf: BattleField = context.get("player_field")
+			return pf.current_mana if pf != null else 0
+	return 0
+
+
+static func _hp_percent(card: CardData) -> int:
+	if card == null or card.max_hp <= 0:
+		return 0
+	return int(round(float(card.hp) * 100.0 / float(card.max_hp)))
+
+
+static func _card_has_buff(card: CardData, buff_id: String) -> bool:
+	if card == null:
+		return false
+	for eff in card.status_effects:
+		if eff.get("buff_id", "") == buff_id and eff.get("value", 0) > 0:
+			return true
+	return false
+
+
+static func _compare_condition(actual: int, expected: int, op: String) -> bool:
+	match op:
+		CONDITION_OP_LTE:
+			return actual <= expected
+		CONDITION_OP_EQ:
+			return actual == expected
+	return actual >= expected
+
+
+static func _limit_random_targets(targets: Array, random_count: int, context: Dictionary) -> Array:
+	if random_count <= 0 or targets.size() <= random_count:
+		return targets
+	_shuffle_targets(targets, context)
+	return targets.slice(0, random_count)
+
+
+static func _is_enemy_effect_blocked_on_turn_one(targets: Array, source_card: CardData, context: Dictionary) -> bool:
+	var turn_no: int = int(context.get("turn_number", 99))
+	return turn_no <= 1 and _TargetResolver.targets_include_enemy(targets, source_card, context)
+
 
 static func _roll_percent(context: Dictionary) -> float:
 	var rng = context.get("rng", null)
@@ -71,18 +271,16 @@ static func _shuffle_targets(targets: Array, context: Dictionary) -> void:
 		targets.shuffle()
 		return
 	for i in range(targets.size() - 1, 0, -1):
-		var j :int = rng.randi_range(0, i)
+		var j: int = rng.randi_range(0, i)
 		var temp = targets[i]
 		targets[i] = targets[j]
 		targets[j] = temp
 
 
-# Resolves an effect's numeric value at execution time. Supports three modes,
-# chosen by which optional fields are present (backward compatible with a plain
-# integer "value"):
-#   variable: value_var set  -> _var_value(var) + value_offset
-#   random:   value_min/max  -> rng.randi_range(min, max)
-#   fixed:    value          -> int(value)
+# ============================================
+# Dynamic values
+# ============================================
+
 static func _resolve_value(eff: Dictionary, source_card: CardData, context: Dictionary) -> int:
 	var var_id: String = eff.get("value_var", "")
 	if var_id != "":
@@ -102,17 +300,6 @@ static func _resolve_value(eff: Dictionary, source_card: CardData, context: Dict
 	return int(eff.get("value", 1))
 
 
-static func _count_cards(field: BattleField) -> int:
-	if field == null:
-		return 0
-	var n := 0
-	for slot in field.slots:
-		if slot != null:
-			n += 1
-	return n
-
-
-# Computes a dynamic variable's current value from the skill context.
 static func _var_value(var_id: String, _source_card: CardData, context: Dictionary) -> int:
 	var pf: BattleField = context.get("player_field")
 	var ef: BattleField = context.get("enemy_field")
@@ -135,371 +322,59 @@ static func _var_value(var_id: String, _source_card: CardData, context: Dictiona
 	return 0
 
 
-static func trigger_skills(trigger: String, source_card: CardData, context: Dictionary) -> void:
-	if source_card == null or source_card.skills.is_empty():
-		return
-	if source_card.is_silenced():
-		return
-
-	for skill in source_card.skills:
-		var skill_dict: Dictionary = skill
-		if skill_dict.get("trigger", "") == trigger:
-			var prob: int = skill_dict.get("probability", 100)
-			var misfortune: int = source_card.get_misfortune()
-			if misfortune > 0:
-				prob = max(0, prob - misfortune)
-				print("[SkillEngine] %s: misfortune -%d%% (eff: %d%%)" % [skill_dict.get("skill_name", "???"), misfortune, prob])
-			if prob < 100 and _roll_percent(context) > float(prob):
-				print("[SkillEngine] %s: %d%% roll failed — skipped" % [skill_dict.get("skill_name", "???"), prob])
-				continue
-			_execute_skill(skill_dict, source_card, context)
-static func trigger_single_skill(card: CardData, skill_index: int, context: Dictionary) -> void:
-	if card == null or skill_index < 0 or skill_index >= card.skills.size():
-		return
-	if card.is_silenced():
-		return
-	var skill_dict: Dictionary = card.skills[skill_index]
-	var prob: int = skill_dict.get("probability", 100)
-	var misfortune2: int = card.get_misfortune()
-	if misfortune2 > 0:
-		prob = max(0, prob - misfortune2)
-		print("[SkillEngine] %s: misfortune -%d%% (eff: %d%%)" % [skill_dict.get("skill_name", "???"), misfortune2, prob])
-	if prob < 100 and _roll_percent(context) > float(prob):
-		print("[SkillEngine] %s: %d%% roll failed — skipped" % [skill_dict.get("skill_name", "???"), prob])
-		return
-	_execute_skill(skill_dict, card, context)
+static func _count_cards(field: BattleField) -> int:
+	if field == null:
+		return 0
+	var n := 0
+	for slot in field.slots:
+		if slot != null:
+			n += 1
+	return n
 
 
-static func _execute_skill(skill: Dictionary, source_card: CardData, context: Dictionary) -> void:
-	var skill_name: String = skill.get("skill_name", "???")
-	var effects: Array = skill.get("effects", [])
+# ============================================
+# Compatibility wrappers
+# ============================================
 
-	# Backward compat: old single-effect format
-	if effects.is_empty():
-		var single := {
-			"target": skill.get("target", TARGET_SINGLE),
-			"effect": skill.get("effect", EFFECT_DAMAGE),
-			"value": skill.get("value", 1),
-			"buff_id": skill.get("buff_id", ""),
-			"duration": skill.get("duration", 0),
-		}
-		effects = [single]
-
-	for eff_dict in effects:
-		var eff: Dictionary = eff_dict
-		var eff_prob: int = eff.get("probability", 100)
-		var misfortune3: int = source_card.get_misfortune()
-		if misfortune3 > 0:
-			eff_prob = max(0, eff_prob - misfortune3)
-		if eff_prob < 100 and _roll_percent(context) > float(eff_prob):
-			print("[SkillEngine] Effect skipped: %d%% roll failed" % eff_prob)
-			continue
-		var target_str: String = eff.get("target", TARGET_SINGLE)
-		var effect_str: String = eff.get("effect", EFFECT_DAMAGE)
-		var value: int = _resolve_value(eff, source_card, context)
-
-		var targets: Array = _resolve_targets(target_str, source_card, context)
-		var rcount: int = int(eff.get("random_count", 0))
-		if rcount > 0 and targets.size() > rcount:
-			_shuffle_targets(targets, context)
-			targets = targets.slice(0, rcount)
-
-		# Turn 1 rule: neither side may affect enemy cards. If any resolved
-		# target belongs to the source's enemy field, skip the whole effect.
-		var turn_no: int = int(context.get("turn_number", 99))
-		if turn_no <= 1 and _targets_include_enemy(targets, source_card, context):
-			print("[SkillEngine] Turn 1: '%s' enemy-targeting effect skipped" % skill_name)
-			continue
-
-		print("[SkillEngine] %s: %s -> %s x%d on %d target(s)" % [skill_name, effect_str, target_str, value, targets.size()])
-
-		for target_card in targets:
-			if target_card == null or not target_card.is_alive():
-				continue
-			_apply_effect(effect_str, target_card, value, eff, context)
+static func _is_directed_target(target_str: String) -> bool:
+	return _TargetResolver.is_directed_target(target_str)
 
 
-# Returns the battlefield opposing the skill's source card, so the turn-1 rule
-# is evaluated from the acting card's perspective (works for reactive triggers).
-static func _enemy_field_of_source(source_card: CardData, context: Dictionary) -> BattleField:
-	var pf: BattleField = context.get("player_field")
-	var ef: BattleField = context.get("enemy_field")
-	if pf != null and source_card in pf.slots:
-		return ef
-	if ef != null and source_card in ef.slots:
-		return pf
-	return ef
+static func _default_target_side(target_str: String) -> String:
+	return _TargetResolver.default_target_side(target_str)
+
+
+static func normalize_effect_target(eff: Dictionary) -> Dictionary:
+	return _TargetResolver.normalize_effect_target(eff)
+
+
+static func _resolve_targets(target_str: String, source_card: CardData, context: Dictionary, target_side: String = TARGET_SIDE_ALL) -> Array:
+	return _TargetResolver.resolve_targets(target_str, source_card, context, target_side)
 
 
 static func _targets_include_enemy(targets: Array, source_card: CardData, context: Dictionary) -> bool:
-	var enemy_field: BattleField = _enemy_field_of_source(source_card, context)
-	if enemy_field == null:
-		return false
-	for t in targets:
-		if t != null and t in enemy_field.slots:
-			return true
-	return false
+	return _TargetResolver.targets_include_enemy(targets, source_card, context)
 
 
-static func _resolve_targets(target_str: String, source_card: CardData, context: Dictionary) -> Array:
-	match target_str:
-		TARGET_SELF:
-			return [source_card]
-		TARGET_SINGLE:
-			return _resolve_single_target(source_card, context)
-		TARGET_SIDES:
-			return _resolve_adjacent(source_card, context, false)
-		TARGET_SELF_SIDES:
-			return _resolve_adjacent(source_card, context, true)
-		TARGET_ALL_ENEMIES:
-			return _resolve_all_enemies(context)
-		TARGET_ALL_ALLIES:
-			return _resolve_all_allies(context)
-		TARGET_MALE:
-			return _resolve_by_gender(context, "male")
-		TARGET_FEMALE:
-			return _resolve_by_gender(context, "female")
-		TARGET_NONHUMAN:
-			return _resolve_by_gender(context, "nonhuman")
-	return []
+static func _enemy_field_of_source(source_card: CardData, context: Dictionary) -> BattleField:
+	return _TargetResolver.enemy_field_of_source(source_card, context)
 
-
-# ============================================
-# Target resolvers
-# ============================================
-
-static func _resolve_single_target(source_card: CardData, context: Dictionary) -> Array:
-	var target_slot: int = context.get("target_slot", -1)
-	var enemy_field: BattleField = context.get("enemy_field")
-	if target_slot >= 0:
-		if enemy_field and enemy_field.slots[target_slot] != null:
-			return [enemy_field.slots[target_slot]]
-	# No specific target — pick any alive enemy
-	if enemy_field:
-		for slot in enemy_field.slots:
-			if slot != null and slot.is_alive():
-				return [slot]
-	return []
-
-
-static func _resolve_adjacent(source_card: CardData, context: Dictionary, include_self: bool) -> Array:
-	var result: Array = []
-
-	if include_self:
-		var center: int = context.get("source_slot", -1)
-		if center < 0:
-			return result
-		var field: BattleField = context.get("player_field")
-		if field == null:
-			return result
-		if field.slots[center] != null:
-			result.append(field.slots[center])
-		for offset in [-1, 1]:
-			var adj: int = center + offset
-			if adj >= 0 and adj < 5 and field.slots[adj] != null:
-				result.append(field.slots[adj])
-	else:
-		var center: int = context.get("target_slot", -1)
-		if center < 0:
-			return result
-		var field: BattleField = context.get("enemy_field")
-		if field == null:
-			return result
-		# Include the target itself
-		if field.slots[center] != null:
-			result.append(field.slots[center])
-		for offset in [-1, 1]:
-			var adj: int = center + offset
-			if adj >= 0 and adj < 5 and field.slots[adj] != null:
-				result.append(field.slots[adj])
-
-	return result
-
-
-static func _resolve_all_enemies(context: Dictionary) -> Array:
-	var result: Array = []
-	var enemy_field: BattleField = context.get("enemy_field")
-	if enemy_field:
-		for slot in enemy_field.slots:
-			if slot != null and slot.is_alive():
-				result.append(slot)
-	return result
-
-
-static func _resolve_all_allies(context: Dictionary) -> Array:
-	var result: Array = []
-	var player_field: BattleField = context.get("player_field")
-	if player_field:
-		for slot in player_field.slots:
-			if slot != null and slot.is_alive():
-				result.append(slot)
-	return result
-
-
-static func _resolve_by_gender(context: Dictionary, gender: String) -> Array:
-	var result: Array = []
-	var enemy_field: BattleField = context.get("enemy_field")
-	if enemy_field:
-		for slot in enemy_field.slots:
-			if slot != null and slot.is_alive() and slot.gender == gender:
-				result.append(slot)
-	var player_field: BattleField = context.get("player_field")
-	if player_field:
-		for slot in player_field.slots:
-			if slot != null and slot.is_alive() and slot.gender == gender:
-				result.append(slot)
-	return result
-
-
-# ============================================
-# Effect appliers
-# ============================================
 
 static func _apply_effect(effect_str: String, target: CardData, value: int, skill: Dictionary, context: Dictionary) -> void:
-	match effect_str:
-		EFFECT_DAMAGE:
-			target.take_damage(value)
-			EventBus.hp_changed.emit(target, -value, target.hp)
-			print("  -> %s takes %d dmg (HP: %d)" % [target.card_name, value, target.hp])
-
-		EFFECT_HEAL:
-			target.heal(value)
-			EventBus.hp_changed.emit(target, value, target.hp)
-			print("  -> %s healed %d (HP: %d)" % [target.card_name, value, target.hp])
-
-		EFFECT_DRAW_CARDS:
-			var cb: Callable = context.get("draw_callable", Callable())
-			if cb.is_valid():
-				cb.call(value)
-			print("  -> Draw %d cards" % value)
-		EFFECT_SHIELD:
-			target.temp_hp += value
-			print("  -> %s gains %d temp HP (total: %d)" % [target.card_name, value, target.temp_hp])
+	_EffectApplier.apply_effect(effect_str, target, value, skill, context)
 
 
-		EFFECT_CHARM:
-			_apply_charm(target, context)
-		EFFECT_ADD_BUFF:
-			var buff_id: String = skill.get("buff_id", "")
-			var duration: int = skill.get("duration", 1)
-			if buff_id != "":
-				target.apply_buff(buff_id, value, duration, context.get("current_player", 0))
+static func format_buff_value(buff_id: String, value_text: String, is_zh: bool = Locale.language == "zh") -> String:
+	return _TextFormatter.format_buff_value(buff_id, value_text, is_zh)
 
-
-
-# ============================================
-# Charm helpers
-# ============================================
-
-static func _apply_charm(target: CardData, context: Dictionary) -> void:
-	var enemy_field: BattleField = context.get("enemy_field")
-	var hand: Array = context.get("active_hand", [])
-	if enemy_field == null or hand == null:
-		return
-
-	# Find target slot
-	var slot_idx := -1
-	for i in range(enemy_field.slots.size()):
-		if enemy_field.slots[i] == target:
-			slot_idx = i
-			break
-	if slot_idx < 0:
-		return
-
-	# Create copy preserving state
-	var copy := target.duplicate_card()
-	copy.original_cost = target.original_cost if target.original_cost >= 0 else target.cost
-	copy.cost = 0
-	copy.charmed_slot = slot_idx
-
-	# Remove from enemy field
-	enemy_field.slots[slot_idx] = null
-	print("  -> %s charmed! (slot %d) cost 0 this turn" % [copy.card_name, slot_idx])
-
-	# Add to hand
-	hand.append(copy)
-
-# ============================================
-# Tooltip
-# ============================================
 
 static func _format_effect_sentence(eff: Dictionary) -> String:
-	var target: String = Locale.term("target", eff.get("target", ""))
-	var effect_id: String = eff.get("effect", "")
-	var vstr: String = _describe_value(eff)
-	var probability: int = int(eff.get("probability", 100))
-	var sentence := ""
-	var is_zh := Locale.language == "zh"
-
-	match effect_id:
-		EFFECT_DAMAGE:
-			sentence = "对%s造成 %s 点伤害" % [target, vstr] if is_zh else "Deal %s damage to %s" % [vstr, target]
-		EFFECT_HEAL:
-			sentence = "为%s恢复 %s 点生命" % [target, vstr] if is_zh else "Restore %s HP to %s" % [vstr, target]
-		EFFECT_DRAW_CARDS:
-			sentence = "为%s抽 %s 张牌" % [target, vstr] if is_zh else "Draw %s card(s) for %s" % [vstr, target]
-		EFFECT_SHIELD:
-			sentence = "为%s获得 %s 点护盾" % [target, vstr] if is_zh else "Give %s %s shield" % [target, vstr]
-		EFFECT_CHARM:
-			sentence = "魅惑%s" % target if is_zh else "Charm %s" % target
-		EFFECT_ADD_BUFF:
-			var buff_name: String = Locale.term("buff", eff.get("buff_id", ""))
-			var duration: int = int(eff.get("duration", 1))
-			if is_zh:
-				sentence = "为%s添加%s，持续 %d 回合" % [target, buff_name, duration]
-			else:
-				sentence = "Apply %s to %s for %d turn(s)" % [buff_name, target, duration]
-		_:
-			sentence = "%s %s %s" % [target, Locale.term("effect", effect_id), vstr]
-
-	if probability < 100:
-		sentence += " %s" % Locale.t("skill.chance", [probability])
-	return sentence
+	return _TextFormatter.format_effect_sentence(eff)
 
 
-# Human-readable value description for tooltips/editor (no live context).
-# Mirrors _resolve_value's mode selection: variable, random range, or fixed.
 static func _describe_value(eff: Dictionary) -> String:
-	var var_id: String = eff.get("value_var", "")
-	if var_id != "":
-		var offset: int = int(eff.get("value_offset", 0))
-		var vname: String = Locale.term("value_var", var_id)
-		if offset > 0:
-			return "(%s+%d)" % [vname, offset]
-		elif offset < 0:
-			return "(%s-%d)" % [vname, -offset]
-		return "(%s)" % vname
-	if eff.has("value_min") and eff.has("value_max"):
-		var vmin: int = int(eff.get("value_min", 1))
-		var vmax: int = int(eff.get("value_max", 1))
-		if vmin == vmax:
-			return str(vmin)
-		return "%d-%d" % [vmin, vmax]
-	return str(int(eff.get("value", 0)))
+	return _TextFormatter.describe_value(eff)
 
 
 static func format_skill_tooltip(skill: Dictionary) -> String:
-	if skill.is_empty():
-		return ""
-
-	var sname: String = skill.get("skill_name", Locale.t("editor.unnamed"))
-	var trig: String = Locale.term("trigger", skill.get("trigger", ""))
-	var result: String = "[%s] %s
-" % [sname, trig]
-
-	# Effects array (with backward compat)
-	var effects: Array = skill.get("effects", [])
-	if effects.is_empty() and not skill.get("effect", "").is_empty():
-		effects = [{"target": skill.get("target", ""), "effect": skill.get("effect", ""),
-			"value": skill.get("value", 0), "buff_id": skill.get("buff_id", ""), "duration": skill.get("duration", 0)}]
-
-	if effects.is_empty():
-		result += "  %s" % Locale.t("skill.no_effects")
-	for i in range(effects.size()):
-		var eff: Dictionary = effects[i]
-		result += "  %d. %s" % [i + 1, _format_effect_sentence(eff)]
-		if i < effects.size() - 1:
-			result += "
-"
-
-	return result
+	return _TextFormatter.format_skill_tooltip(skill)

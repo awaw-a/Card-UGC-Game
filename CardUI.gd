@@ -1,11 +1,15 @@
 extends Control
 
+const _TextFormatter = preload("res://SkillTextFormatter.gd")
+
 signal attack_requested
 signal skill1_requested
 signal skill2_requested
 
+@onready var background_panel = $Background
 @onready var name_label = $NameLabel
 @onready var cost_label = $CostLabel
+@onready var gender_label = $GenderLabel
 @onready var hp_label = $HpLabel
 @onready var atk_label = $AtkLabel
 @onready var action_buttons = $ActionButtons
@@ -43,11 +47,14 @@ func apply_ui_scale(scale_value: float) -> void:
 	_scale_child_rect($Background, 0, 0, 120, 160)
 	_scale_child_rect(name_label, 6, 4, 114, 22)
 	_scale_child_rect(cost_label, 6, 26, 58, 40)
+	_scale_child_rect(gender_label, 72, 24, 114, 40)
 	_scale_child_rect(hp_label, 6, 42, 94, 56)
 	_scale_child_rect(atk_label, 6, 58, 94, 72)
 	_scale_child_rect(action_buttons, 6, 82, 114, 154)
 	if name_label:
 		name_label.add_theme_font_size_override("font_size", max(10, int(13 * ui_scale)))
+	if gender_label:
+		gender_label.add_theme_font_size_override("font_size", max(8, int(10 * ui_scale)))
 	for label in [cost_label, hp_label, atk_label]:
 		if label:
 			label.add_theme_font_size_override("font_size", max(9, int(11 * ui_scale)))
@@ -62,6 +69,32 @@ func apply_ui_scale(scale_value: float) -> void:
 	if silence_label:
 		silence_label.position = Vector2(6, 140) * ui_scale
 		silence_label.add_theme_font_size_override("font_size", max(10, int(13 * ui_scale)))
+	_apply_card_visual_style()
+
+
+func _apply_card_visual_style() -> void:
+	if background_panel:
+		var style := StyleBoxFlat.new()
+		style.bg_color = Color(0.11, 0.12, 0.16)
+		style.border_color = Color(0.48, 0.43, 0.32)
+		style.set_border_width_all(max(1, int(2 * ui_scale)))
+		style.set_corner_radius_all(max(3, int(7 * ui_scale)))
+		background_panel.add_theme_stylebox_override("panel", style)
+	for label in [name_label, cost_label, hp_label, atk_label]:
+		if label:
+			label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.75))
+			label.add_theme_constant_override("shadow_offset_x", max(1, int(1 * ui_scale)))
+			label.add_theme_constant_override("shadow_offset_y", max(1, int(1 * ui_scale)))
+	if name_label:
+		name_label.add_theme_color_override("font_color", Color(1.0, 0.94, 0.72))
+	for label in [cost_label, hp_label, atk_label]:
+		if label:
+			label.add_theme_color_override("font_color", Color(0.92, 0.94, 1.0))
+	if gender_label:
+		gender_label.add_theme_color_override("font_color", Color(0.78, 0.86, 1.0))
+		gender_label.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.75))
+		gender_label.add_theme_constant_override("shadow_offset_x", max(1, int(1 * ui_scale)))
+		gender_label.add_theme_constant_override("shadow_offset_y", max(1, int(1 * ui_scale)))
 
 
 func _ready():
@@ -97,6 +130,7 @@ func set_card(card_data: CardData):
 	if card_data == null:
 		if name_label: name_label.text = ""
 		if cost_label: cost_label.text = ""
+		if gender_label: gender_label.text = ""
 		if hp_label: hp_label.text = ""
 		if atk_label: atk_label.text = ""
 		if action_buttons: action_buttons.visible = false
@@ -105,27 +139,36 @@ func set_card(card_data: CardData):
 		_clear_buff_dots()
 		return
 
-	name_label.text = card_data.card_name
+	if name_label:
+		name_label.text = card_data.card_name
+	if gender_label:
+		gender_label.text = _gender_text(card_data.gender)
 	if card_data.is_charmed():
-		cost_label.text = Locale.t("card.cost_charmed")
-		cost_label.add_theme_color_override("font_color", Color(0.2, 0.9, 0.2))  # green for charmed
+		if cost_label:
+			cost_label.text = Locale.t("card.cost_charmed")
+			cost_label.add_theme_color_override("font_color", Color(0.2, 0.9, 0.2))  # green for charmed
 	else:
-		cost_label.text = Locale.t("card.cost", [card_data.cost])
-		cost_label.add_theme_color_override("font_color", Color.WHITE)
+		if cost_label:
+			cost_label.text = Locale.t("card.cost", [card_data.cost])
+			cost_label.add_theme_color_override("font_color", Color.WHITE)
 
 	# HP: show current/max, plus temp HP if any
 	if card_data.temp_hp > 0:
-		hp_label.text = Locale.t("card.hp_temp", [card_data.hp, card_data.max_hp, card_data.temp_hp])
+		if hp_label:
+			hp_label.text = Locale.t("card.hp_temp", [card_data.hp, card_data.max_hp, card_data.temp_hp])
 	else:
-		hp_label.text = Locale.t("card.hp", [card_data.hp, card_data.max_hp])
+		if hp_label:
+			hp_label.text = Locale.t("card.hp", [card_data.hp, card_data.max_hp])
 
 	# ATK: show effective, plus bonus
 	var eff_atk: int = card_data.effective_atk()
 	var bonus: int = eff_atk - card_data.atk
 	if bonus > 0:
-		atk_label.text = Locale.t("card.atk_bonus", [eff_atk, bonus])
+		if atk_label:
+			atk_label.text = Locale.t("card.atk_bonus", [eff_atk, bonus])
 	else:
-		atk_label.text = Locale.t("card.atk", [eff_atk])
+		if atk_label:
+			atk_label.text = Locale.t("card.atk", [eff_atk])
 
 	_update_buff_dots()
 	_update_skill_buttons()
@@ -138,11 +181,15 @@ func set_card(card_data: CardData):
 
 
 func _clear_buff_dots():
+	if buff_dots == null:
+		return
 	for child in buff_dots.get_children():
 		child.queue_free()
 
 
 func _update_buff_dots():
+	if buff_dots == null or current_card_data == null:
+		return
 	_clear_buff_dots()
 	for eff in current_card_data.status_effects:
 		var val: int = eff.get("value", 0)
@@ -169,7 +216,17 @@ func _format_buff_tooltip(eff: Dictionary) -> String:
 	var val: int = eff.get("value", 0)
 	var dur: int = eff.get("duration", 0)
 	var name: String = Locale.term("buff", bid)
-	return Locale.t("card.buff_tooltip", [name, val, dur])
+	var detail := SkillEngine.format_buff_value(bid, str(val))
+	return "%s：%s，剩余 %d 回合" % [name, detail, dur] if Locale.language == "zh" else "%s: %s, %d turn(s) left" % [name, detail, dur]
+
+
+func _gender_text(gender: String) -> String:
+	match gender:
+		"male":
+			return Locale.t("editor.gender_male")
+		"female":
+			return Locale.t("editor.gender_female")
+	return Locale.t("editor.gender_nonhuman")
 
 
 func _update_skill_buttons():
@@ -178,7 +235,7 @@ func _update_skill_buttons():
 			var s: Dictionary = current_card_data.skills[0]
 			var sname: String = s.get("skill_name", "")
 			skill1_btn.text = sname if sname != "" else "S1"
-			skill1_btn.tooltip_text = SkillEngine.format_skill_tooltip(s)
+			skill1_btn.tooltip_text = _TextFormatter.format_skill_tooltip(s)
 			skill1_btn.visible = true
 			_apply_skill_button_state(skill1_btn, s, 0)
 		else:
@@ -189,7 +246,7 @@ func _update_skill_buttons():
 			var s: Dictionary = current_card_data.skills[1]
 			var sname: String = s.get("skill_name", "")
 			skill2_btn.text = sname if sname != "" else "S2"
-			skill2_btn.tooltip_text = SkillEngine.format_skill_tooltip(s)
+			skill2_btn.tooltip_text = _TextFormatter.format_skill_tooltip(s)
 			skill2_btn.visible = true
 			_apply_skill_button_state(skill2_btn, s, 1)
 		else:
@@ -219,6 +276,19 @@ func _auto_hide_if_enemy():
 func set_actions_visible(visible: bool):
 	if action_buttons:
 		action_buttons.visible = visible
+
+
+func set_skill_preview_visible(visible: bool):
+	if action_buttons:
+		action_buttons.visible = visible
+	if normal_atk_btn:
+		normal_atk_btn.visible = false
+	if skill1_btn:
+		skill1_btn.disabled = false
+		skill1_btn.modulate = Color.WHITE
+	if skill2_btn:
+		skill2_btn.disabled = false
+		skill2_btn.modulate = Color.WHITE
 
 
 func _get_drag_data(_position: Vector2):

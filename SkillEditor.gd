@@ -5,6 +5,9 @@ extends Control
 # ============================================
 
 const BASE_VIEWPORT_SIZE := Vector2(1152, 648)
+const UITheme = preload("res://UITheme.gd")
+const _TargetResolver = preload("res://SkillTargetResolver.gd")
+const _TextFormatter = preload("res://SkillTextFormatter.gd")
 
 @onready var title_label = $Panel/MarginContainer/ScrollContainer/VBoxContainer/TitleLabel
 @onready var skill_name_input = $Panel/MarginContainer/ScrollContainer/VBoxContainer/SkillNameInput
@@ -99,7 +102,23 @@ func _on_viewport_size_changed() -> void:
 	_apply_responsive_layout()
 
 
+func _apply_theme() -> void:
+	UITheme.apply_app_background(self)
+	UITheme.apply_panel($Panel, "gold")
+	UITheme.apply_title(title_label, max(18, int(20 * _ui_scale())))
+	UITheme.apply_input(skill_name_input)
+	UITheme.apply_button(trigger_select, "secondary")
+	UITheme.apply_button(add_effect_btn, "primary")
+	UITheme.apply_button(save_button, "primary")
+	UITheme.apply_button(cancel_button, "secondary")
+	UITheme.apply_label(skill_summary, true)
+	for path in ["SkillNameLabel", "TriggerLabel", "EffectsLabel"]:
+		var label := $Panel/MarginContainer/ScrollContainer/VBoxContainer.get_node(path) as Label
+		UITheme.apply_label(label)
+
+
 func _ready():
+	_apply_theme()
 	_setup_trigger_dropdown()
 	_setup_skill_probability_row()
 	_connect_signals()
@@ -137,6 +156,7 @@ func _setup_skill_probability_row():
 	var lbl := Label.new()
 	lbl.text = Locale.t("skill_editor.probability")
 	lbl.add_theme_font_size_override("font_size", max(10, int(14 * s)))
+	UITheme.apply_label(lbl)
 	row.add_child(lbl)
 
 	skill_prob_spin = SpinBox.new()
@@ -144,11 +164,13 @@ func _setup_skill_probability_row():
 	skill_prob_spin.min_value = 1.0
 	skill_prob_spin.max_value = 100.0
 	skill_prob_spin.value = 100.0
+	UITheme.apply_input(skill_prob_spin)
 	skill_prob_spin.value_changed.connect(func(_f: float): _update_summary())
 	row.add_child(skill_prob_spin)
 
 	var pct := Label.new()
 	pct.text = "%"
+	UITheme.apply_label(pct)
 	row.add_child(pct)
 
 	vbox.add_child(row)
@@ -161,6 +183,17 @@ func _connect_signals():
 	add_effect_btn.pressed.connect(func(): _open_effect_popup(-1))
 	save_button.pressed.connect(_on_save_pressed)
 	cancel_button.pressed.connect(_on_cancel_pressed)
+
+
+func _apply_dynamic_theme(root: Node) -> void:
+	for child in root.get_children():
+		if child is Label:
+			UITheme.apply_label(child)
+		elif child is OptionButton or child is Button:
+			UITheme.apply_button(child, "danger" if child is Button and child.text == "X" else "secondary")
+		elif child is SpinBox or child is LineEdit:
+			UITheme.apply_input(child)
+		_apply_dynamic_theme(child)
 
 
 # ============================================
@@ -199,10 +232,11 @@ func _refresh_effect_list():
 		row.add_child(del_btn)
 
 		effects_list.add_child(row)
+	_apply_dynamic_theme(effects_list)
 
 
 func _format_effect_short(eff: Dictionary, idx: int) -> String:
-	return "[%d] %s" % [idx + 1, SkillEngine._format_effect_sentence(eff)]
+	return "[%d] %s" % [idx + 1, _TextFormatter.format_effect_sentence(eff)]
 
 
 func _delete_effect(idx: int):
@@ -237,13 +271,9 @@ func _open_effect_popup(idx: int):
 	popup_layer.add_child(bg)
 
 	# Centered popup panel
-	var popup_size := Vector2(360, 260) * s
+	var popup_size := Vector2(390, 380) * s
 	var panel := Panel.new()
-	var panel_style := StyleBoxFlat.new()
-	panel_style.bg_color = Color(0.15, 0.15, 0.18, 1.0)
-	panel_style.border_color = Color(0.35, 0.35, 0.4, 1.0)
-	panel_style.set_corner_radius_all(8)
-	panel.add_theme_stylebox_override("panel", panel_style)
+	UITheme.apply_panel(panel, "gold")
 	panel.custom_minimum_size = popup_size
 	panel.anchor_left = 0.5
 	panel.anchor_right = 0.5
@@ -255,9 +285,24 @@ func _open_effect_popup(idx: int):
 	panel.offset_bottom = popup_size.y / 2.0
 	popup_layer.add_child(panel)
 
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", int(6 * s))
+	outer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	outer.offset_left = 10 * s
+	outer.offset_top = 10 * s
+	outer.offset_right = -10 * s
+	outer.offset_bottom = -10 * s
+	panel.add_child(outer)
+
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	outer.add_child(scroll)
+
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", int(6 * s))
-	panel.add_child(vb)
+	vb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(vb)
 
 	# Target dropdown
 	var target_label := Label.new()
@@ -268,6 +313,45 @@ func _open_effect_popup(idx: int):
 	target_sel.custom_minimum_size = Vector2(200 * s, 0)
 	_setup_target_dropdown(target_sel)
 	vb.add_child(target_sel)
+
+	var side_row := HBoxContainer.new()
+	side_row.add_theme_constant_override("separation", int(4 * s))
+	var side_label := Label.new()
+	side_label.text = Locale.t("skill_editor.target_side")
+	side_label.add_theme_font_size_override("font_size", max(10, int(14 * s)))
+	side_row.add_child(side_label)
+	var side_sel := OptionButton.new()
+	side_sel.size_flags_horizontal = 3
+	side_sel.custom_minimum_size = Vector2(120 * s, 0)
+	_setup_target_side_dropdown(side_sel)
+	side_row.add_child(side_sel)
+	vb.add_child(side_row)
+
+	var warning_label := Label.new()
+	warning_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	warning_label.add_theme_font_size_override("font_size", max(9, int(12 * s)))
+	UITheme.apply_label(warning_label, true)
+	vb.add_child(warning_label)
+
+	var _update_target_warning = func():
+		var trigger_keys := [
+			SkillEngine.TRIGGER_ON_ATTACK, SkillEngine.TRIGGER_ON_ACTIVATE,
+			SkillEngine.TRIGGER_ON_SUMMON, SkillEngine.TRIGGER_ON_DEATH, SkillEngine.TRIGGER_ON_DAMAGED,
+		]
+		var trigger_key: String = trigger_keys[trigger_select.selected]
+		var target_key: String = TARGET_KEYS[target_sel.selected]
+		var msg := _target_warning_for(trigger_key, target_key, target_sel.disabled)
+		warning_label.text = msg
+		warning_label.visible = msg != ""
+
+	var _update_target_side = func():
+		var target_key: String = TARGET_KEYS[target_sel.selected]
+		var disabled := target_sel.disabled or _TargetResolver.is_directed_target(target_key)
+		side_sel.disabled = disabled
+		if disabled:
+			side_sel.selected = _idx_of(SkillEngine.TARGET_SIDE_ALL, TARGET_SIDE_KEYS)
+		_update_target_warning.call()
+	target_sel.item_selected.connect(func(_i: int): _update_target_side.call())
 
 	# Effect + Value row
 	var r1 := HBoxContainer.new()
@@ -395,6 +479,54 @@ func _open_effect_popup(idx: int):
 	rcount_row.add_child(rcount_spin)
 	vb.add_child(rcount_row)
 
+	# Effect condition row
+	var condition_row := HBoxContainer.new()
+	condition_row.add_theme_constant_override("separation", int(4 * s))
+	var condition_label := Label.new()
+	condition_label.text = Locale.t("skill_editor.condition")
+	condition_label.add_theme_font_size_override("font_size", max(10, int(14 * s)))
+	condition_row.add_child(condition_label)
+	var condition_sel := OptionButton.new()
+	condition_sel.size_flags_horizontal = 3
+	_setup_condition_dropdown(condition_sel)
+	condition_row.add_child(condition_sel)
+	vb.add_child(condition_row)
+
+	var condition_detail_row := HBoxContainer.new()
+	condition_detail_row.add_theme_constant_override("separation", int(4 * s))
+	var condition_op_label := Label.new()
+	condition_op_label.text = Locale.t("skill_editor.condition_op")
+	condition_op_label.add_theme_font_size_override("font_size", max(10, int(14 * s)))
+	condition_detail_row.add_child(condition_op_label)
+	var condition_op_sel := OptionButton.new()
+	_setup_condition_op_dropdown(condition_op_sel)
+	condition_detail_row.add_child(condition_op_sel)
+	var condition_value_label := Label.new()
+	condition_value_label.text = Locale.t("skill_editor.condition_value")
+	condition_value_label.add_theme_font_size_override("font_size", max(10, int(14 * s)))
+	condition_detail_row.add_child(condition_value_label)
+	var condition_value_spin := SpinBox.new()
+	condition_value_spin.custom_minimum_size = Vector2(55 * s, 0)
+	condition_value_spin.min_value = 0.0
+	condition_value_spin.max_value = 100.0
+	condition_value_spin.value = 1.0
+	condition_detail_row.add_child(condition_value_spin)
+	condition_detail_row.visible = false
+	vb.add_child(condition_detail_row)
+
+	var condition_buff_row := HBoxContainer.new()
+	condition_buff_row.add_theme_constant_override("separation", int(4 * s))
+	var condition_buff_label := Label.new()
+	condition_buff_label.text = Locale.t("skill_editor.condition_buff")
+	condition_buff_label.add_theme_font_size_override("font_size", max(10, int(14 * s)))
+	condition_buff_row.add_child(condition_buff_label)
+	var condition_buff_sel := OptionButton.new()
+	condition_buff_sel.size_flags_horizontal = 3
+	_setup_buff_dropdown(condition_buff_sel)
+	condition_buff_row.add_child(condition_buff_sel)
+	condition_buff_row.visible = false
+	vb.add_child(condition_buff_row)
+
 	# Buff row (conditional)
 	var buff_row := HBoxContainer.new()
 	buff_row.add_theme_constant_override("separation", int(4 * s))
@@ -417,19 +549,37 @@ func _open_effect_popup(idx: int):
 	vb.add_child(buff_row)
 
 	var _update_pct = func():
-		pct_label.visible = (effect_sel.selected == 5 and buff_sel.selected in [4, 7])
+		var effect_key: String = EFFECT_KEYS[effect_sel.selected]
+		var buff_key: String = BUFF_KEYS[buff_sel.selected]
+		pct_label.visible = (effect_key == SkillEngine.EFFECT_ADD_BUFF and buff_key in [SkillEngine.BUFF_DAMAGE_REDUCTION, SkillEngine.BUFF_MISFORTUNE])
+
+	# Value-mode toggle: 0=fixed (val_spin), 1=random (rand_row), 2=variable (var_row)
+	var _update_value_mode = func(m: int):
+		var effect_key: String = EFFECT_KEYS[effect_sel.selected]
+		var uses_value := not effect_key in EFFECTS_NO_VALUE
+		val_label.visible = uses_value and (m == 0)
+		val_spin.visible = uses_value and (m == 0)
+		rand_row.visible = uses_value and (m == 1)
+		var_row.visible = uses_value and (m == 2)
+		mode_row.visible = uses_value
+	mode_sel.item_selected.connect(func(m: int): _update_value_mode.call(m))
 
 	effect_sel.item_selected.connect(func(i: int):
-		buff_row.visible = (i == 5)
-		target_sel.disabled = (i == 2)
-		if i != 5:
+		var effect_key: String = EFFECT_KEYS[i]
+		buff_row.visible = (effect_key == SkillEngine.EFFECT_ADD_BUFF)
+		target_sel.disabled = effect_key in EFFECTS_FORCE_SELF
+		_update_target_side.call()
+		mode_sel.disabled = effect_key in EFFECTS_NO_VALUE
+		if effect_key != SkillEngine.EFFECT_ADD_BUFF:
 			val_spin.editable = true
 		else:
-			val_spin.editable = (buff_sel.selected not in [5, 6])
+			val_spin.editable = not BUFF_KEYS[buff_sel.selected] in [SkillEngine.BUFF_TAUNT, SkillEngine.BUFF_SILENCE]
+		_update_value_mode.call(mode_sel.selected)
 		_update_pct.call()
 	)
 	buff_sel.item_selected.connect(func(_i: int):
-		if _i in [5, 6]:
+		var buff_key: String = BUFF_KEYS[_i]
+		if buff_key in [SkillEngine.BUFF_TAUNT, SkillEngine.BUFF_SILENCE]:
 			val_spin.value = 1.0
 			val_spin.editable = false
 		else:
@@ -437,13 +587,13 @@ func _open_effect_popup(idx: int):
 		_update_pct.call()
 	)
 
-	# Value-mode toggle: 0=fixed (val_spin), 1=random (rand_row), 2=variable (var_row)
-	var _update_value_mode = func(m: int):
-		val_label.visible = (m == 0)
-		val_spin.visible = (m == 0)
-		rand_row.visible = (m == 1)
-		var_row.visible = (m == 2)
-	mode_sel.item_selected.connect(func(m: int): _update_value_mode.call(m))
+	var _update_condition_mode = func(_i: int):
+		var condition_type: String = CONDITION_KEYS[condition_sel.selected]
+		var has_condition := condition_type != SkillEngine.CONDITION_NONE
+		var uses_buff := condition_type == SkillEngine.CONDITION_TARGET_HAS_BUFF
+		condition_detail_row.visible = has_condition and not uses_buff
+		condition_buff_row.visible = uses_buff
+	condition_sel.item_selected.connect(func(i: int): _update_condition_mode.call(i))
 
 	# Buttons
 	var btns := HBoxContainer.new()
@@ -452,34 +602,44 @@ func _open_effect_popup(idx: int):
 	var ok_btn := Button.new()
 	ok_btn.text = Locale.t("skill_editor.ok")
 	ok_btn.add_theme_font_size_override("font_size", max(10, int(14 * s)))
+	UITheme.apply_button(ok_btn, "primary")
 	ok_btn.pressed.connect(_on_popup_ok)
 	btns.add_child(ok_btn)
 	var cls_btn := Button.new()
 	cls_btn.text = Locale.t("skill_editor.cancel")
 	cls_btn.add_theme_font_size_override("font_size", max(10, int(14 * s)))
+	UITheme.apply_button(cls_btn, "secondary")
 	cls_btn.pressed.connect(_on_popup_cancel)
 	btns.add_child(cls_btn)
-	vb.add_child(btns)
+	outer.add_child(btns)
+	_apply_dynamic_theme(vb)
+	UITheme.apply_button(ok_btn, "primary")
+	UITheme.apply_button(cls_btn, "secondary")
 
 	# Store refs for reading later
 	popup_form = {
-		"target_sel": target_sel, "effect_sel": effect_sel, "val_spin": val_spin,
+		"target_sel": target_sel, "side_sel": side_sel, "warning_label": warning_label, "effect_sel": effect_sel, "val_spin": val_spin,
 		"buff_sel": buff_sel, "dur_spin": dur_spin, "buff_row": buff_row,
 		"rcount_spin": rcount_spin, "pct_label": pct_label,
 		"prob_spin": eff_prob_spin,
 		"mode_sel": mode_sel, "min_spin": min_spin, "max_spin": max_spin,
 		"var_sel": var_sel, "off_spin": off_spin,
+		"condition_sel": condition_sel, "condition_op_sel": condition_op_sel,
+		"condition_value_spin": condition_value_spin, "condition_buff_sel": condition_buff_sel,
 	}
 
 	# Load existing data if editing
 	if idx >= 0 and idx < effect_data.size():
-		var eff: Dictionary = effect_data[idx]
+		var eff: Dictionary = _TargetResolver.normalize_effect_target(effect_data[idx])
 		target_sel.selected = _idx_of(eff.get("target", SkillEngine.TARGET_SINGLE), TARGET_KEYS)
+		side_sel.selected = _idx_of(eff.get("target_side", SkillEngine.TARGET_SIDE_ALL), TARGET_SIDE_KEYS)
+		_update_target_side.call()
 		effect_sel.selected = _idx_of(eff.get("effect", SkillEngine.EFFECT_DAMAGE), EFFECT_KEYS)
 		val_spin.value = float(eff.get("value", 1))
 		buff_sel.selected = _idx_of(eff.get("buff_id", SkillEngine.BUFF_ATK_BOOST), BUFF_KEYS)
 		val_spin.editable = (buff_sel.selected not in [5, 6])
 		target_sel.disabled = (effect_sel.selected == 2)
+		_update_target_side.call()
 		dur_spin.value = int(eff.get("duration", 2))
 		rcount_spin.value = float(eff.get("random_count", 0))
 		eff_prob_spin.value = float(eff.get("probability", 100))
@@ -496,15 +656,23 @@ func _open_effect_popup(idx: int):
 			max_spin.value = float(eff.get("value_max", 1))
 		else:
 			mode_sel.selected = 0
+		condition_sel.selected = _idx_of(eff.get("condition_type", SkillEngine.CONDITION_NONE), CONDITION_KEYS)
+		condition_op_sel.selected = _idx_of(eff.get("condition_op", SkillEngine.CONDITION_OP_GTE), CONDITION_OP_KEYS)
+		condition_value_spin.value = float(eff.get("condition_value", 1))
+		condition_buff_sel.selected = _idx_of(eff.get("condition_buff_id", SkillEngine.BUFF_TAUNT), BUFF_KEYS)
+		_update_condition_mode.call(condition_sel.selected)
 		_update_value_mode.call(mode_sel.selected)
 		_update_pct.call()
 	else:
 		_update_value_mode.call(0)
+		_update_condition_mode.call(0)
+		_update_target_side.call()
 
 
 func _on_popup_ok():
 	var eff := {
 		"target": TARGET_KEYS[popup_form.target_sel.selected],
+		"target_side": TARGET_SIDE_KEYS[popup_form.side_sel.selected],
 		"effect": EFFECT_KEYS[popup_form.effect_sel.selected],
 		"value": float(popup_form.val_spin.value),
 		"buff_id": "",
@@ -525,8 +693,20 @@ func _on_popup_ok():
 		eff.buff_id = BUFF_KEYS[popup_form.buff_sel.selected]
 		eff.duration = int(popup_form.dur_spin.value)
 		eff.random_count = int(popup_form.rcount_spin.value)
-	if eff.effect == SkillEngine.EFFECT_DRAW_CARDS:
-		eff.target = SkillEngine.TARGET_SELF  # draw always self
+	var condition_type: String = CONDITION_KEYS[popup_form.condition_sel.selected]
+	if condition_type != SkillEngine.CONDITION_NONE:
+		eff.condition_type = condition_type
+		if condition_type == SkillEngine.CONDITION_TARGET_HAS_BUFF:
+			eff.condition_buff_id = BUFF_KEYS[popup_form.condition_buff_sel.selected]
+		else:
+			eff.condition_op = CONDITION_OP_KEYS[popup_form.condition_op_sel.selected]
+			eff.condition_value = int(popup_form.condition_value_spin.value)
+	if eff.effect in EFFECTS_FORCE_SELF:
+		eff.target = SkillEngine.TARGET_SELF
+		eff.target_side = SkillEngine.TARGET_SIDE_ALL
+	if _TargetResolver.is_directed_target(eff.target):
+		eff.target_side = SkillEngine.TARGET_SIDE_ALL
+	eff = _TargetResolver.normalize_effect_target(eff)
 
 	if editing_effect_idx >= 0:
 		effect_data[editing_effect_idx] = eff
@@ -557,15 +737,27 @@ func _close_popup():
 const TARGET_KEYS := [
 	SkillEngine.TARGET_SINGLE, SkillEngine.TARGET_SIDES,
 	SkillEngine.TARGET_SELF, SkillEngine.TARGET_SELF_SIDES,
-	SkillEngine.TARGET_ALL_ENEMIES, SkillEngine.TARGET_ALL_ALLIES,
+	SkillEngine.TARGET_ALL,
 	SkillEngine.TARGET_MALE, SkillEngine.TARGET_FEMALE, SkillEngine.TARGET_NONHUMAN,
+]
+const TARGET_SIDE_KEYS := [
+	SkillEngine.TARGET_SIDE_ENEMY, SkillEngine.TARGET_SIDE_ALLY, SkillEngine.TARGET_SIDE_ALL,
 ]
 const EFFECT_KEYS := [
 	SkillEngine.EFFECT_DAMAGE, SkillEngine.EFFECT_HEAL,
 	SkillEngine.EFFECT_DRAW_CARDS, SkillEngine.EFFECT_SHIELD,
 	SkillEngine.EFFECT_CHARM,
 	SkillEngine.EFFECT_ADD_BUFF,
+	SkillEngine.EFFECT_LIFESTEAL_DAMAGE,
+	SkillEngine.EFFECT_EXECUTE,
+	SkillEngine.EFFECT_CLEANSE,
+	SkillEngine.EFFECT_DISPEL,
+	SkillEngine.EFFECT_GAIN_MANA,
+	SkillEngine.EFFECT_GAIN_ATTACK,
+	SkillEngine.EFFECT_GAIN_MAX_HP,
 ]
+const EFFECTS_FORCE_SELF := [SkillEngine.EFFECT_DRAW_CARDS, SkillEngine.EFFECT_GAIN_MANA]
+const EFFECTS_NO_VALUE := [SkillEngine.EFFECT_CLEANSE, SkillEngine.EFFECT_DISPEL]
 const BUFF_KEYS := [
 	SkillEngine.BUFF_ATK_BOOST,
 	SkillEngine.BUFF_REGEN,
@@ -581,11 +773,43 @@ const VAR_KEYS := [
 	SkillEngine.VAR_EMPTY_ALLY, SkillEngine.VAR_EMPTY_ENEMY,
 	SkillEngine.VAR_HAND_COUNT, SkillEngine.VAR_MANA_CURRENT,
 ]
+const CONDITION_KEYS := [
+	SkillEngine.CONDITION_NONE,
+	SkillEngine.CONDITION_SOURCE_HP_PCT,
+	SkillEngine.CONDITION_TARGET_HP_PCT,
+	SkillEngine.CONDITION_FIELD_ALLY,
+	SkillEngine.CONDITION_FIELD_ENEMY,
+	SkillEngine.CONDITION_HAND_COUNT,
+	SkillEngine.CONDITION_MANA_CURRENT,
+	SkillEngine.CONDITION_TARGET_HAS_BUFF,
+]
+const CONDITION_OP_KEYS := [
+	SkillEngine.CONDITION_OP_GTE, SkillEngine.CONDITION_OP_LTE, SkillEngine.CONDITION_OP_EQ,
+]
+
+func _target_warning_for(trigger_key: String, target_key: String, target_disabled: bool = false) -> String:
+	if target_disabled:
+		return Locale.t("skill_editor.warning_forced_self")
+	if _TargetResolver.is_directed_target(target_key):
+		if target_key in [SkillEngine.TARGET_SINGLE, SkillEngine.TARGET_SIDES] and trigger_key == SkillEngine.TRIGGER_ON_DEATH:
+			return Locale.t("skill_editor.warning_death_directed")
+		if target_key in [SkillEngine.TARGET_SINGLE, SkillEngine.TARGET_SIDES] and trigger_key in [SkillEngine.TRIGGER_ON_ACTIVATE, SkillEngine.TRIGGER_ON_SUMMON]:
+			return Locale.t("skill_editor.warning_manual_target")
+		return Locale.t("skill_editor.warning_side_ignored")
+	if trigger_key == SkillEngine.TRIGGER_ON_DEATH:
+		return Locale.t("skill_editor.warning_death_filter")
+	return Locale.t("skill_editor.warning_side_filter")
+
 
 func _setup_target_dropdown(dd: OptionButton):
 	dd.clear()
 	for i in range(TARGET_KEYS.size()):
 		dd.add_item(Locale.term("target", TARGET_KEYS[i]), i)
+
+func _setup_target_side_dropdown(dd: OptionButton):
+	dd.clear()
+	for i in range(TARGET_SIDE_KEYS.size()):
+		dd.add_item(Locale.term("target_side", TARGET_SIDE_KEYS[i]), i)
 
 func _setup_effect_dropdown(dd: OptionButton):
 	dd.clear()
@@ -601,6 +825,18 @@ func _setup_var_dropdown(dd: OptionButton):
 	dd.clear()
 	for i in range(VAR_KEYS.size()):
 		dd.add_item(Locale.term("value_var", VAR_KEYS[i]), i)
+
+func _setup_condition_dropdown(dd: OptionButton):
+	dd.clear()
+	for i in range(CONDITION_KEYS.size()):
+		var key: String = CONDITION_KEYS[i]
+		var label := Locale.t("skill_editor.condition_none") if key == SkillEngine.CONDITION_NONE else Locale.term("condition", key)
+		dd.add_item(label, i)
+
+func _setup_condition_op_dropdown(dd: OptionButton):
+	dd.clear()
+	for i in range(CONDITION_OP_KEYS.size()):
+		dd.add_item(Locale.term("condition_op", CONDITION_OP_KEYS[i]), i)
 
 func _idx_of(key: String, keys: Array) -> int:
 	var i := keys.find(key)
@@ -629,11 +865,16 @@ func _load_skill(skill: Dictionary):
 			"buff_id": skill.get("buff_id", ""),
 			"duration": skill.get("duration", 0),
 		}]
-	effect_data = effects
+	var normalized_effects: Array = []
+	for eff in effects:
+		normalized_effects.append(_TargetResolver.normalize_effect_target(eff))
+	effect_data = normalized_effects
 	_refresh_effect_list()
 
 
 func _build_skill() -> Dictionary:
+	if effect_data.is_empty():
+		return {}
 	var trigger_keys := [
 		SkillEngine.TRIGGER_ON_ATTACK, SkillEngine.TRIGGER_ON_ACTIVATE,
 		SkillEngine.TRIGGER_ON_SUMMON, SkillEngine.TRIGGER_ON_DEATH, SkillEngine.TRIGGER_ON_DAMAGED,
@@ -665,7 +906,7 @@ func _format_skill(skill: Dictionary) -> String:
 		lines += "  %s" % Locale.t("skill.no_effects")
 	for i in range(effects.size()):
 		var eff: Dictionary = effects[i]
-		lines += "  %d. %s" % [i + 1, SkillEngine._format_effect_sentence(eff)]
+		lines += "  %d. %s" % [i + 1, _TextFormatter.format_effect_sentence(eff)]
 		if i < effects.size() - 1:
 			lines += "\n"
 	return lines

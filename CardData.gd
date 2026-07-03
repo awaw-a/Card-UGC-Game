@@ -6,6 +6,8 @@ extends RefCounted
 # ============================================
 
 # Base stats
+var card_id: String = ""
+var instance_id: String = ""
 var card_name: String = ""
 var cost: int = 0
 var max_hp: int = 0
@@ -22,7 +24,7 @@ var skills_used: Array = []
 var charmed_slot: int = -1
 var original_cost: int = -1
 
-# Temporary HP (shield replacement, resets each turn)
+# Temporary HP (shield replacement, expires when its owner is about to act again)
 var temp_hp: int = 0
 
 # Skill definitions (Array[Dictionary])
@@ -79,9 +81,10 @@ func reset_charm_cost() -> void:
 # ============================================
 
 # Temp HP consumed first, then real HP. Damage reduction applied first.
+# Returns actual HP lost, excluding shield/temp HP absorption.
 func take_damage(amount: int) -> int:
 	if amount <= 0:
-		return hp
+		return 0
 
 	# Damage reduction (floor)
 	var reduction_pct := get_damage_reduction()
@@ -91,8 +94,9 @@ func take_damage(amount: int) -> int:
 		amount = reduced
 
 	if amount <= 0:
-		return hp
+		return 0
 
+	var hp_before := hp
 	var remaining: int = amount
 
 	if temp_hp > 0:
@@ -104,7 +108,7 @@ func take_damage(amount: int) -> int:
 	if remaining > 0:
 		hp = max(0, hp - remaining)
 
-	return hp
+	return hp_before - hp
 
 
 func heal(amount: int) -> int:
@@ -204,8 +208,6 @@ func process_mana_refund(owner_player: int) -> int:
 
 # Tick buffs belonging to a specific player
 func tick_buffs(owner_player: int) -> void:
-	# Reset temp HP each turn
-
 	var to_remove: Array = []
 	for i in range(status_effects.size()):
 		var eff: Dictionary = status_effects[i]
@@ -257,6 +259,8 @@ func reset_to_base() -> void:
 
 func duplicate_card() -> CardData:
 	var copy := CardData.new(card_name, base_cost, base_max_hp, base_atk, skills.duplicate(true))
+	copy.card_id = card_id
+	copy.instance_id = instance_id
 	copy.cost = cost
 	copy.max_hp = max_hp
 	copy.hp = hp

@@ -1,6 +1,8 @@
 class_name CardDatabase
 extends RefCounted
 
+const _TargetResolver = preload("res://SkillTargetResolver.gd")
+
 # ============================================
 # Preset card database — all built-in cards defined here
 # ============================================
@@ -59,6 +61,85 @@ static func starter_library() -> Array:
 		CardData.new("女巫", 3, 3, 1, [
 			_fx_skill("诅咒", SkillEngine.TRIGGER_ON_ACTIVATE, [
 				_fx(SkillEngine.TARGET_SINGLE, SkillEngine.EFFECT_ADD_BUFF, 75, SkillEngine.BUFF_MISFORTUNE, 1),
+			]),
+		]),
+
+		# --- 炮术师: 主动随机轰击 2 个敌人，每个造成 1-3 点伤害 ---
+		CardData.new("炮术师", 4, 4, 2, [
+			_fx_skill("随机炮击", SkillEngine.TRIGGER_ON_ACTIVATE, [
+				_fx_random(SkillEngine.TARGET_ALL_ENEMIES, SkillEngine.EFFECT_DAMAGE, 1, 3, "", 0, 2),
+			]),
+		]),
+
+		# --- 军旗手: 召唤时根据我方场上随从数量为全体友方加护盾 ---
+		CardData.new("军旗手", 3, 4, 1, [
+			_fx_skill("列阵护卫", SkillEngine.TRIGGER_ON_SUMMON, [
+				_fx_var(SkillEngine.TARGET_ALL_ALLIES, SkillEngine.EFFECT_SHIELD, SkillEngine.VAR_FIELD_ALLY),
+			]),
+		]),
+
+		# --- 荆棘守卫: 召唤时获得嘲讽与反伤 ---
+		CardData.new("荆棘守卫", 3, 6, 1, [
+			_fx_skill("荆棘壁垒", SkillEngine.TRIGGER_ON_SUMMON, [
+				_fx(SkillEngine.TARGET_SELF, SkillEngine.EFFECT_ADD_BUFF, 1, SkillEngine.BUFF_TAUNT, 2),
+				_fx(SkillEngine.TARGET_SELF, SkillEngine.EFFECT_ADD_BUFF, 1, SkillEngine.BUFF_THORNS, 2),
+			]),
+		]),
+
+		# --- 学者: 召唤时抽牌 ---
+		CardData.new("学者", 2, 2, 1, [
+			_fx_skill("战术整理", SkillEngine.TRIGGER_ON_SUMMON, [
+				_fx(SkillEngine.TARGET_SELF, SkillEngine.EFFECT_DRAW_CARDS, 1),
+			]),
+		]),
+
+		# --- 血刃刺客: 主动造成吸血伤害 ---
+		CardData.new("血刃刺客", 3, 4, 2, [
+			_fx_skill("血刃突袭", SkillEngine.TRIGGER_ON_ACTIVATE, [
+				_fx(SkillEngine.TARGET_SINGLE, SkillEngine.EFFECT_LIFESTEAL_DAMAGE, 3),
+			]),
+		]),
+
+		# --- 处刑者: 主动斩杀低生命敌人 ---
+		CardData.new("处刑者", 4, 5, 3, [
+			_fx_skill("终结打击", SkillEngine.TRIGGER_ON_ACTIVATE, [
+				_fx(SkillEngine.TARGET_SINGLE, SkillEngine.EFFECT_EXECUTE, 3),
+			]),
+		]),
+
+		# --- 修女: 净化友方负面状态并治疗 ---
+		CardData.new("修女", 2, 4, 1, [
+			_fx_skill("净化祷言", SkillEngine.TRIGGER_ON_ACTIVATE, [
+				_fx(SkillEngine.TARGET_SINGLE, SkillEngine.EFFECT_CLEANSE, 0, "", 0, 0, 100, SkillEngine.TARGET_SIDE_ALLY),
+				_fx(SkillEngine.TARGET_SINGLE, SkillEngine.EFFECT_HEAL, 2, "", 0, 0, 100, SkillEngine.TARGET_SIDE_ALLY),
+			]),
+		]),
+
+		# --- 破法者: 驱散敌方正面状态 ---
+		CardData.new("破法者", 3, 4, 2, [
+			_fx_skill("破法", SkillEngine.TRIGGER_ON_ACTIVATE, [
+				_fx(SkillEngine.TARGET_SINGLE, SkillEngine.EFFECT_DISPEL, 0, "", 0, 0, 100, SkillEngine.TARGET_SIDE_ENEMY),
+			]),
+		]),
+
+		# --- 炼金术士: 低血量时获得圣水 ---
+		CardData.new("炼金术士", 2, 3, 1, [
+			_fx_skill("应急炼成", SkillEngine.TRIGGER_ON_DAMAGED, [
+				_fx_condition(SkillEngine.TARGET_SELF, SkillEngine.EFFECT_GAIN_MANA, 2, SkillEngine.CONDITION_SOURCE_HP_PCT, SkillEngine.CONDITION_OP_LTE, 50),
+			]),
+		]),
+
+		# --- 训练官: 召唤时永久强化相邻友军攻击 ---
+		CardData.new("训练官", 3, 4, 1, [
+			_fx_skill("战术训练", SkillEngine.TRIGGER_ON_SUMMON, [
+				_fx(SkillEngine.TARGET_SELF_SIDES, SkillEngine.EFFECT_GAIN_ATTACK, 1),
+			]),
+		]),
+
+		# --- 古树: 召唤时永久提升自身生命上限 ---
+		CardData.new("古树", 5, 7, 2, [
+			_fx_skill("扎根生长", SkillEngine.TRIGGER_ON_SUMMON, [
+				_fx(SkillEngine.TARGET_SELF, SkillEngine.EFFECT_GAIN_MAX_HP, 3),
 			]),
 		]),
 	]
@@ -133,13 +214,53 @@ static func _fx_skill(sname: String, trigger: String, effects: Array, probabilit
 
 
 # Build a single effect entry. random_count = 0 means "all matched targets".
-static func _fx(target: String, effect: String, value: int, buff: String = "", duration: int = 0, random_count: int = 0, probability: int = 100) -> Dictionary:
-	return {
+static func _fx(target: String, effect: String, value: int, buff: String = "", duration: int = 0, random_count: int = 0, probability: int = 100, target_side: String = "") -> Dictionary:
+	var eff := _TargetResolver.normalize_effect_target({
 		"target": target,
+		"target_side": target_side if target_side != "" else _TargetResolver.default_target_side(target),
 		"effect": effect,
 		"value": value,
 		"buff_id": buff,
 		"duration": duration,
 		"random_count": random_count,
 		"probability": probability,
-	}
+	})
+	return eff
+
+
+static func _fx_random(target: String, effect: String, value_min: int, value_max: int, buff: String = "", duration: int = 0, random_count: int = 0, probability: int = 100, target_side: String = "") -> Dictionary:
+	var eff := _TargetResolver.normalize_effect_target({
+		"target": target,
+		"target_side": target_side if target_side != "" else _TargetResolver.default_target_side(target),
+		"effect": effect,
+		"value_min": value_min,
+		"value_max": value_max,
+		"buff_id": buff,
+		"duration": duration,
+		"random_count": random_count,
+		"probability": probability,
+	})
+	return eff
+
+
+static func _fx_var(target: String, effect: String, value_var: String, value_offset: int = 0, buff: String = "", duration: int = 0, random_count: int = 0, probability: int = 100, target_side: String = "") -> Dictionary:
+	var eff := _TargetResolver.normalize_effect_target({
+		"target": target,
+		"target_side": target_side if target_side != "" else _TargetResolver.default_target_side(target),
+		"effect": effect,
+		"value_var": value_var,
+		"value_offset": value_offset,
+		"buff_id": buff,
+		"duration": duration,
+		"random_count": random_count,
+		"probability": probability,
+	})
+	return eff
+
+
+static func _fx_condition(target: String, effect: String, value: int, condition_type: String, condition_op: String, condition_value: int, buff: String = "", duration: int = 0, random_count: int = 0, probability: int = 100, target_side: String = "") -> Dictionary:
+	var eff := _fx(target, effect, value, buff, duration, random_count, probability, target_side)
+	eff["condition_type"] = condition_type
+	eff["condition_op"] = condition_op
+	eff["condition_value"] = condition_value
+	return eff

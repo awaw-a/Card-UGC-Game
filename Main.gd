@@ -356,6 +356,10 @@ func _card_identity_key(card: CardData) -> String:
 # Init
 # ============================================
 
+var _disconnect_overlay: Control
+var _disconnect_back_btn: Button
+
+
 func _ready():
 	game = load("res://GameState.gd").new()
 	_init_network()
@@ -1409,6 +1413,7 @@ func _on_skill_activated(slot_index: int, skill_index: int):
 		return
 	if is_activate and card.has_attacked:
 		return
+	cancel_attack()
 	if _skill_needs_targeting(skill):
 		if game.turn_number <= 1 and _manual_target_is_enemy(skill):
 			print("Turn 1: enemy-targeting skills are not allowed!")
@@ -1473,6 +1478,7 @@ func _on_attack_requested(slot_index: int):
 		return
 	if field.slots[slot_index].is_silenced() and not field.slots[slot_index].attack_ignores_silence:
 		return
+	cancel_attack()
 	current_attacker_idx = slot_index
 	if attack_arrow:
 		attack_arrow.visible = true
@@ -2467,6 +2473,94 @@ func _show_zero_cost_selection_popup(candidates: Array, count: int, hand: Array 
 	box.add_child(close_btn)
 
 
+func _show_disconnect_result_page() -> void:
+	var old_layer := $CanvasLayer.get_node_or_null("BattleResultLayer")
+	if old_layer:
+		old_layer.queue_free()
+	var layer := Control.new()
+	layer.name = "BattleResultLayer"
+	_disconnect_overlay = layer
+	layer.anchor_right = 1.0
+	layer.anchor_bottom = 1.0
+	layer.mouse_filter = Control.MOUSE_FILTER_STOP
+	$CanvasLayer.add_child(layer)
+	$CanvasLayer.move_child(layer, $CanvasLayer.get_child_count() - 1)
+
+	var bg := ColorRect.new()
+	bg.anchor_right = 1.0
+	bg.anchor_bottom = 1.0
+	bg.color = Color(0.015, 0.018, 0.026, 0.86)
+	layer.add_child(bg)
+
+	var center := CenterContainer.new()
+	center.anchor_right = 1.0
+	center.anchor_bottom = 1.0
+	layer.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(540, 320) * _ui_scale()
+	UITheme.apply_panel(panel, "gold")
+	center.add_child(panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 32)
+	margin.add_theme_constant_override("margin_right", 32)
+	margin.add_theme_constant_override("margin_top", 28)
+	margin.add_theme_constant_override("margin_bottom", 28)
+	panel.add_child(margin)
+
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 18)
+	margin.add_child(box)
+
+	var title := Label.new()
+	title.text = Locale.t("result.connection_lost_title")
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	UITheme.apply_title(title, 36)
+	box.add_child(title)
+
+	var body := Label.new()
+	body.text = Locale.t("result.connection_lost_body")
+	body.name = "BodyLabel"
+	body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	UITheme.apply_label(body, true)
+	body.add_theme_font_size_override("font_size", 18)
+	box.add_child(body)
+
+	var button_row := HBoxContainer.new()
+	button_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	button_row.add_theme_constant_override("separation", 18)
+	box.add_child(button_row)
+
+	var multiplayer_btn := Button.new()
+	multiplayer_btn.text = Locale.t("result.back_multiplayer")
+	multiplayer_btn.custom_minimum_size = Vector2(170, 48)
+	UITheme.apply_button(multiplayer_btn, "secondary")
+	multiplayer_btn.pressed.connect(_on_disconnect_back_multiplayer_pressed)
+	button_row.add_child(multiplayer_btn)
+	_disconnect_back_btn = multiplayer_btn
+
+	var menu_btn := Button.new()
+	menu_btn.text = Locale.t("result.back_menu")
+	menu_btn.custom_minimum_size = Vector2(160, 48)
+	UITheme.apply_button(menu_btn, "secondary")
+	menu_btn.pressed.connect(_on_result_back_menu_pressed)
+	button_row.add_child(menu_btn)
+
+	layer.modulate.a = 0.0
+	panel.scale = Vector2(0.88, 0.88)
+	var twn := create_tween()
+	twn.set_parallel(true)
+	twn.tween_property(layer, "modulate:a", 1.0, 0.20)
+	twn.tween_property(panel, "scale", Vector2.ONE, 0.24).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+
+
+func _on_disconnect_back_multiplayer_pressed() -> void:
+	NetworkManager.close_connection()
+	get_tree().change_scene_to_file("res://MultiplayerMenu.tscn")
+
+
 func _result_winner_player(result: String) -> int:
 	if result == "p1_wins":
 		return 1
@@ -2786,12 +2880,25 @@ func _pause_for_reconnect() -> void:
 
 
 func _on_opponent_disconnected(_player: int) -> void:
+	if battle_finished:
+		return
 	if NetworkManager.is_dedicated_server or NetworkManager.has_saved_room_session():
 		_pause_for_reconnect()
 		return
 	# Direct P2P has no stable room process or reconnect token to recover from.
-	NetworkManager.close_connection()
-	get_tree().change_scene_to_file.call_deferred("res://MultiplayerMenu.tscn")
+	battle_finished = true
+	practice_ai_running = false
+	cancel_attack()
+	remote_arrow_source = -1
+	remote_arrow_target = -1
+	if attack_arrow:
+		attack_arrow.visible = false
+	_show_combat_broadcast("对手已断开连接！" if Locale.language == "zh" else "Opponent disconnected!")
+	if mana_label:
+		mana_label.text = "[ %s ]" % Locale.t("result.connection_lost_title")
+	if end_turn_button:
+		end_turn_button.disabled = true
+	_show_disconnect_result_page()
 
 
 func _on_reconnect_started() -> void:

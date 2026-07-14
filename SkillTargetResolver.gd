@@ -52,9 +52,9 @@ static func resolve_targets(target_str: String, source_card: CardData, context: 
 		TARGET_SELF:
 			return [source_card]
 		TARGET_SINGLE:
-			return _resolve_directed_target(source_card, context, false)
+			return _resolve_directed_target(source_card, context, false, target_side)
 		TARGET_SIDES:
-			return _resolve_directed_target(source_card, context, true)
+			return _resolve_directed_target(source_card, context, true, target_side)
 		TARGET_SELF_SIDES:
 			return _resolve_self_adjacent(source_card, context)
 		TARGET_ALL_ENEMIES:
@@ -102,14 +102,23 @@ static func _source_field_of(source_card: CardData, context: Dictionary) -> Batt
 	return pf
 
 
-static func _resolve_directed_target(source_card: CardData, context: Dictionary, include_sides: bool) -> Array:
+static func _resolve_directed_target(source_card: CardData, context: Dictionary, include_sides: bool, target_side: String = TARGET_SIDE_ENEMY) -> Array:
 	var target_slot: int = context.get("target_slot", -1)
 	if target_slot < 0:
 		return []
-	var field: BattleField = enemy_field_of_source(source_card, context)
+	var field: BattleField = _directed_target_field(source_card, context, target_side)
 	if field == null:
 		return []
 	return _cards_around_slot(field, target_slot, include_sides)
+
+
+static func _directed_target_field(source_card: CardData, context: Dictionary, target_side: String) -> BattleField:
+	match target_side:
+		TARGET_SIDE_ALLY:
+			return _source_field_of(source_card, context)
+		TARGET_SIDE_ENEMY:
+			return enemy_field_of_source(source_card, context)
+	return enemy_field_of_source(source_card, context)
 
 
 static func _resolve_self_adjacent(source_card: CardData, context: Dictionary) -> Array:

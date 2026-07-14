@@ -16,6 +16,11 @@ const TRIGGER_ON_ACTIVATE := "on_activate"
 const TRIGGER_ON_SUMMON   := "on_summon"
 const TRIGGER_ON_DEATH    := "on_death"
 const TRIGGER_ON_DAMAGED  := "on_damaged"
+const TRIGGER_ON_CAST     := "on_cast"
+
+# Skill type: "normal" (blockable by silence) or "talent" (天赋, never blocked)
+const SKILL_TYPE_NORMAL  := "normal"
+const SKILL_TYPE_TALENT  := "talent"
 
 const TARGET_SINGLE       := "target_single"
 const TARGET_SIDES        := "target_sides"
@@ -45,6 +50,9 @@ const EFFECT_DISPEL       := "dispel"
 const EFFECT_GAIN_MANA    := "gain_mana"
 const EFFECT_GAIN_ATTACK  := "gain_attack"
 const EFFECT_GAIN_MAX_HP  := "gain_max_hp"
+const EFFECT_VIEW_DISCARD := "view_discard_select"
+const EFFECT_VIEW_DECK    := "view_deck_select"
+const EFFECT_ZERO_COST    := "make_zero_cost"
 const BUFF_SILENCE        := "silence"
 const BUFF_MISFORTUNE     := "misfortune"
 
@@ -54,6 +62,7 @@ const BUFF_MANA_REFUND      := "mana_refund"
 const BUFF_THORNS           := "thorns"
 const BUFF_DAMAGE_REDUCTION := "damage_reduction"
 const BUFF_TAUNT            := "taunt"
+const BUFF_IMMUNE_LETHAL   := "immune_lethal"
 
 # Dynamic value variables (resolved at execution time from skill context).
 const VAR_FIELD_TOTAL   := "field_total"
@@ -94,30 +103,70 @@ const CONDITION_OPS := [CONDITION_OP_GTE, CONDITION_OP_LTE, CONDITION_OP_EQ]
 # Main entry
 # ============================================
 
+static func _is_talent_skill(skill: Dictionary) -> bool:
+	return skill.get("skill_type", SKILL_TYPE_NORMAL) == SKILL_TYPE_TALENT
+
+
+static func _check_max_uses(card: CardData, skill: Dictionary, skill_index: int) -> bool:
+	var max_uses: int = skill.get("max_uses", 0)
+	if max_uses <= 0:
+		return true  # unlimited
+	var count: int = card.skills_used_count.get(skill_index, 0)
+	if count >= max_uses:
+		print("[SkillEngine] %s: max_uses (%d) reached for '%s'" % [card.card_name, max_uses, skill.get("skill_name", "???")])
+		return false
+	return true
+
+
+static func _mark_skill_used(card: CardData, skill_index: int) -> void:
+	card.skills_used_count[skill_index] = card.skills_used_count.get(skill_index, 0) + 1
+
+
 static func trigger_skills(trigger: String, source_card: CardData, context: Dictionary) -> void:
 	if source_card == null or source_card.skills.is_empty():
 		return
-	if source_card.is_silenced():
-		return
+	var silenced := source_card.is_silenced()
 	var trigger_context := context.duplicate()
 	trigger_context["trigger"] = trigger
 
-	for skill in source_card.skills:
-		var skill_dict: Dictionary = skill
-		if skill_dict.get("trigger", "") == trigger and _passes_skill_roll(skill_dict, source_card, trigger_context):
+	for skill_index in range(source_card.skills.size()):
+		var skill_dict: Dictionary = source_card.skills[skill_index]
+		if skill_dict.get("trigger", "") != trigger:
+			continue
+		# Talent skills bypass silence; normal skills are blocked
+		if silenced and not _is_talent_skill(skill_dict):
+			continue
+		if not _check_max_uses(source_card, skill_dict, skill_index):
+			continue
+		if _passes_skill_roll(skill_dict, source_card, trigger_context):
 			_execute_skill(skill_dict, source_card, trigger_context)
+			_mark_skill_used(source_card, skill_index)
 
 
 static func trigger_single_skill(card: CardData, skill_index: int, context: Dictionary) -> void:
 	if card == null or skill_index < 0 or skill_index >= card.skills.size():
 		return
-	if card.is_silenced():
-		return
 	var skill_dict: Dictionary = card.skills[skill_index]
+	if card.is_silenced() and not _is_talent_skill(skill_dict):
+		return
+	if not _check_max_uses(card, skill_dict, skill_index):
+		return
 	var single_context := context.duplicate()
 	single_context["trigger"] = skill_dict.get("trigger", "")
 	if _passes_skill_roll(skill_dict, card, single_context):
 		_execute_skill(skill_dict, card, single_context)
+		_mark_skill_used(card, skill_index)
+
+
+static func trigger_external_skill(skill: Dictionary, source_card: CardData, context: Dictionary) -> void:
+	if source_card == null or skill.is_empty():
+		return
+	if source_card.is_silenced() and not _is_talent_skill(skill):
+		return
+	var external_context := context.duplicate()
+	external_context["trigger"] = skill.get("trigger", "")
+	if _passes_skill_roll(skill, source_card, external_context):
+		_execute_skill(skill, source_card, external_context)
 
 
 static func _execute_skill(skill: Dictionary, source_card: CardData, context: Dictionary) -> void:
@@ -134,19 +183,32 @@ static func _execute_skill(skill: Dictionary, source_card: CardData, context: Di
 		var targets: Array = _TargetResolver.resolve_targets(target_str, source_card, context, target_side)
 		targets = _limit_random_targets(targets, int(eff_dict.get("random_count", 0)), context)
 
-		if _is_enemy_effect_blocked_on_turn_one(targets, source_card, context):
+		# Effects that don't need a live battlefield target (draw, mana, zero_cost, etc.)
+		# operate on the hand/deck — skip the turn-1 enemy filter for them.
+		var needs_live_target: bool = not _effect_can_apply_without_live_target(effect_str)
+		if needs_live_target and _is_enemy_effect_blocked_on_turn_one(targets, source_card, context):
 			print("[SkillEngine] Turn 1: '%s' enemy-targeting effect skipped" % skill_name)
 			continue
 
 		print("[SkillEngine] %s: %s -> %s x%d on %d target(s)" % [skill_name, effect_str, target_str, value, targets.size()])
 		var effect_context := context.duplicate()
 		effect_context["source_card"] = source_card
+		effect_context["effect_target"] = target_str
+		effect_context["random_count"] = int(eff_dict.get("random_count", 0))
+		if not needs_live_target:
+			_EffectApplier.apply_effect(effect_str, source_card, value, eff_dict, effect_context)
+			continue
 		for target_card in targets:
-			if target_card == null or not target_card.is_alive():
+			var allow_dead_source: bool = target_card == source_card and context.get("trigger", "") in [TRIGGER_ON_DAMAGED, TRIGGER_ON_DEATH]
+			if target_card == null or (not target_card.is_alive() and not allow_dead_source):
 				continue
 			if not _passes_effect_condition(eff_dict, source_card, target_card, context):
 				continue
 			_EffectApplier.apply_effect(effect_str, target_card, value, eff_dict, effect_context)
+
+
+static func _effect_can_apply_without_live_target(effect_str: String) -> bool:
+	return effect_str in [EFFECT_DRAW_CARDS, EFFECT_GAIN_MANA, EFFECT_VIEW_DISCARD, EFFECT_VIEW_DECK, EFFECT_ZERO_COST]
 
 
 static func _effects_for_skill(skill: Dictionary) -> Array:
@@ -175,6 +237,7 @@ static func _passes_skill_roll(skill: Dictionary, source_card: CardData, context
 		print("[SkillEngine] %s: misfortune -%d%% (eff: %d%%)" % [skill.get("skill_name", "???"), misfortune, prob])
 	if prob < 100 and _roll_percent(context) > float(prob):
 		print("[SkillEngine] %s: %d%% roll failed — skipped" % [skill.get("skill_name", "???"), prob])
+		EventBus.skill_roll_failed.emit(source_card, skill.get("skill_name", "技能"), misfortune, prob)
 		return false
 	return true
 
@@ -186,6 +249,7 @@ static func _passes_effect_roll(eff: Dictionary, source_card: CardData, context:
 		prob = max(0, prob - misfortune)
 	if prob < 100 and _roll_percent(context) > float(prob):
 		print("[SkillEngine] Effect skipped: %d%% roll failed" % prob)
+		EventBus.skill_roll_failed.emit(source_card, source_card.card_name if source_card != null else "效果", misfortune, prob)
 		return false
 	return true
 

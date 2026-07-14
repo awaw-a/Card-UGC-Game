@@ -51,6 +51,10 @@ theme_override_font_sizes/font_size = 22
 [node name="Separator0" type="HSeparator" parent="Panel/MarginContainer/ScrollContainer/VBoxContainer" unique_id=9360002]
 layout_mode = 2
 
+[node name="TemplateButton" type="Button" parent="Panel/MarginContainer/ScrollContainer/VBoxContainer" unique_id=9600001]
+layout_mode = 2
+text = "Use Template"
+
 [node name="ArtLabel" type="Label" parent="Panel/MarginContainer/ScrollContainer/VBoxContainer" unique_id=9400001]
 layout_mode = 2
 text = "Card Art:"
@@ -112,6 +116,15 @@ text = "Gender:"
 [node name="GenderSelect" type="OptionButton" parent="Panel/MarginContainer/ScrollContainer/VBoxContainer" unique_id=9500002]
 layout_mode = 2
 
+[node name="BalanceLabel" type="Label" parent="Panel/MarginContainer/ScrollContainer/VBoxContainer"]
+layout_mode = 2
+text = "Balance Check:"
+
+[node name="BalanceSummary" type="Label" parent="Panel/MarginContainer/ScrollContainer/VBoxContainer"]
+layout_mode = 2
+text = "-"
+autowrap_mode = 3
+
 [node name="Separator1" type="HSeparator" parent="Panel/MarginContainer/ScrollContainer/VBoxContainer" unique_id=9360010]
 layout_mode = 2
 
@@ -163,6 +176,7 @@ filters = PackedStringArray("*.png ; PNG Image", "*.jpg ; JPEG Image", "*.jpeg ;
 
 [connection signal="pressed" from="Panel/MarginContainer/ScrollContainer/VBoxContainer/EditSkill1Button" to="." method="_on_edit_skill1_pressed"]
 [connection signal="pressed" from="Panel/MarginContainer/ScrollContainer/VBoxContainer/EditSkill2Button" to="." method="_on_edit_skill2_pressed"]
+[connection signal="pressed" from="Panel/MarginContainer/ScrollContainer/VBoxContainer/TemplateButton" to="." method="_on_template_pressed"]
 [connection signal="pressed" from="Panel/MarginContainer/ScrollContainer/VBoxContainer/SaveButton" to="." method="_on_save_button_pressed"]
 [connection signal="pressed" from="BackButton" to="." method="_on_back_button_pressed"]
 [connection signal="pressed" from="Panel/MarginContainer/ScrollContainer/VBoxContainer/ArtRow/BrowseButton" to="." method="_on_browse_art_pressed"]

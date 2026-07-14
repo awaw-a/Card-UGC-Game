@@ -9,9 +9,11 @@ signal game_started()
 signal lobby_connected()
 signal lobby_connection_failed()
 signal game_connection_failed()
+signal opponent_disconnected()
 
 const LOBBY_PORT := 4567
 const CONNECT_TIMEOUT := 8.0  # seconds before a pending connection is treated as failed
+const PEER_HEALTH_CHECK_INTERVAL := 3.0  # seconds between opponent alive checks
 
 var peer: ENetMultiplayerPeer
 var is_host: bool = false
@@ -19,9 +21,15 @@ var is_online: bool = false
 var opponent_peer_id: int = 0
 var player_number: int = 0
 var is_dedicated_server: bool = false
+var _last_peer_check: float = 0.0
+var _peer_health_active: bool = false
 # Set from the lobby response in relay mode: whether the server permits card-art
 # transfer. Direct P2P ignores this (always allowed).
 var server_allows_card_art: bool = false
+
+var last_game_address: String = ""
+var last_game_port: int = 0
+var last_game_player_number: int = 0
 
 # Lobby connection (for room-code server)
 var _lobby_peer: ENetMultiplayerPeer
@@ -48,6 +56,13 @@ func _process(_delta: float) -> void:
 	if _game_deadline > 0.0 and _now() > _game_deadline:
 		_game_deadline = 0.0
 		_fail_game_connection()
+	# Periodic opponent health check
+	if _peer_health_active and is_online and opponent_peer_id > 0:
+		if _now() - _last_peer_check > PEER_HEALTH_CHECK_INTERVAL:
+			_last_peer_check = _now()
+			var connected_ids := multiplayer.get_peers()
+			if not opponent_peer_id in connected_ids:
+				_on_opponent_vanished()
 
 
 # ============================================
@@ -261,6 +276,9 @@ func connect_to_game_room(address: String, port: int, assigned_player: int) -> i
 	if peer:
 		peer.close()
 		peer = null
+	last_game_address = address
+	last_game_port = port
+	last_game_player_number = assigned_player
 	player_number = assigned_player
 	is_dedicated_server = true
 	is_host = false
@@ -278,6 +296,16 @@ func connect_to_game_room(address: String, port: int, assigned_player: int) -> i
 	return OK
 
 
+func can_reconnect_to_last_game_room() -> bool:
+	return is_dedicated_server and is_valid_address(last_game_address) and last_game_port > 0 and last_game_player_number > 0
+
+
+func reconnect_to_last_game_room() -> int:
+	if not can_reconnect_to_last_game_room():
+		return ERR_UNAVAILABLE
+	return connect_to_game_room(last_game_address, last_game_port, last_game_player_number)
+
+
 # ============================================
 # Peer events
 # ============================================
@@ -290,6 +318,9 @@ func _on_peer_connected(id: int):
 	if is_dedicated_server and id == 1:
 		return  # dedicated server's own peer ID (not a player)
 	opponent_peer_id = id
+	_peer_health_active = true
+	_last_peer_check = _now()
+	_game_deadline = 0.0
 	connected.emit()
 	print("Opponent connected: %d" % id)
 
@@ -297,7 +328,14 @@ func _on_peer_connected(id: int):
 func _on_peer_disconnected(id: int):
 	print("Opponent disconnected")
 	opponent_peer_id = 0
+	_peer_health_active = false
 	is_online = false
+	opponent_disconnected.emit()
+
+
+func _on_opponent_vanished() -> void:
+	print("Opponent disappeared (no disconnect signal) – treating as disconnected")
+	_on_peer_disconnected(opponent_peer_id)
 
 
 # ============================================
@@ -455,6 +493,7 @@ func rpc_intent_attack(source_slot: int, target_slot: int, player: int):
 @rpc("any_peer", "call_remote")
 func rpc_intent_activate_skill(slot_index: int, skill_index: int, target_slot: int, player: int):
 	EventBus.rpc_intent_activate_skill_received.emit(slot_index, skill_index, target_slot, player)
+
 
 
 @rpc("any_peer", "call_remote")

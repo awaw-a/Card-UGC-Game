@@ -10,10 +10,15 @@ const _TargetResolver = preload("res://SkillTargetResolver.gd")
 const _TextFormatter = preload("res://SkillTextFormatter.gd")
 
 @onready var title_label = $Panel/MarginContainer/ScrollContainer/VBoxContainer/TitleLabel
+@onready var help_label = $Panel/MarginContainer/ScrollContainer/VBoxContainer/HelpLabel
 @onready var skill_name_input = $Panel/MarginContainer/ScrollContainer/VBoxContainer/SkillNameInput
+@onready var trigger_hint_label = $Panel/MarginContainer/ScrollContainer/VBoxContainer/TriggerHintLabel
 @onready var trigger_select = $Panel/MarginContainer/ScrollContainer/VBoxContainer/TriggerSelect
+@onready var trigger_preview_label = $Panel/MarginContainer/ScrollContainer/VBoxContainer/TriggerPreviewLabel
+@onready var effects_hint_label = $Panel/MarginContainer/ScrollContainer/VBoxContainer/EffectsHintLabel
 @onready var effects_list = $Panel/MarginContainer/ScrollContainer/VBoxContainer/EffectsList
 @onready var add_effect_btn = $Panel/MarginContainer/ScrollContainer/VBoxContainer/AddEffectButton
+@onready var preview_label = $Panel/MarginContainer/ScrollContainer/VBoxContainer/PreviewLabel
 @onready var skill_summary = $Panel/MarginContainer/ScrollContainer/VBoxContainer/SkillSummary
 @onready var save_button = $Panel/MarginContainer/ScrollContainer/VBoxContainer/ButtonRow/SaveButton
 @onready var cancel_button = $Panel/MarginContainer/ScrollContainer/VBoxContainer/ButtonRow/CancelButton
@@ -23,18 +28,41 @@ var editing_effect_idx: int = -1   # -1 = new, 0+ = editing existing
 var popup_layer: CanvasLayer
 var popup_form: Dictionary = {}    # refs to popup controls
 var skill_prob_spin: SpinBox       # skill-level probability
+var max_uses_spin: SpinBox         # max uses per game (限定技)
+var skill_type_select: OptionButton # normal or talent
+var skill_type_row: HBoxContainer   # row containing skill_type_select (hidden for active skills)
 
 
 func _apply_texts() -> void:
 	var skill_index: int = PlayerData.editing_skill_index
-	title_label.text = Locale.t("skill_editor.title", [skill_index + 1])
-	$Panel/MarginContainer/ScrollContainer/VBoxContainer/SkillNameLabel.text = Locale.t("skill_editor.name")
-	skill_name_input.placeholder_text = Locale.t("skill_editor.name_placeholder")
-	$Panel/MarginContainer/ScrollContainer/VBoxContainer/TriggerLabel.text = Locale.t("skill_editor.trigger")
-	$Panel/MarginContainer/ScrollContainer/VBoxContainer/EffectsLabel.text = Locale.t("skill_editor.effects")
+	var is_spell: bool = PlayerData.card_draft.get("card_type", "minion") == "spell"
+	title_label.text = Locale.t("skill_editor.title_spell") if is_spell else Locale.t("skill_editor.title", [skill_index + 1])
+	help_label.text = Locale.t("skill_editor.help_spell" if is_spell else "skill_editor.help")
+
+	# Spell skills don't have a name or trigger — hide those rows.
+	$Panel/MarginContainer/ScrollContainer/VBoxContainer/SkillNameLabel.visible = not is_spell
+	skill_name_input.visible = not is_spell
+	$Panel/MarginContainer/ScrollContainer/VBoxContainer/TriggerLabel.visible = not is_spell
+	$Panel/MarginContainer/ScrollContainer/VBoxContainer/TriggerHintLabel.visible = not is_spell
+	trigger_preview_label.visible = not is_spell
+
+	if is_spell:
+		# Lock trigger to on_cast (silently) — no visual trigger section.
+		pass
+	else:
+		$Panel/MarginContainer/ScrollContainer/VBoxContainer/SkillNameLabel.text = Locale.t("skill_editor.name")
+		skill_name_input.placeholder_text = Locale.t("skill_editor.name_placeholder")
+		$Panel/MarginContainer/ScrollContainer/VBoxContainer/TriggerLabel.text = Locale.t("skill_editor.trigger")
+		$Panel/MarginContainer/ScrollContainer/VBoxContainer/TriggerHintLabel.text = Locale.t("skill_editor.trigger_hint")
+
+	$Panel/MarginContainer/ScrollContainer/VBoxContainer/EffectsLabel.text = Locale.t("skill_editor.effects" if not is_spell else "skill_editor.spell_effects")
+	$Panel/MarginContainer/ScrollContainer/VBoxContainer/EffectsHintLabel.text = Locale.t("skill_editor.effects_hint_spell" if is_spell else "skill_editor.effects_hint")
 	add_effect_btn.text = Locale.t("skill_editor.add_effect")
+	preview_label.text = Locale.t("skill_editor.preview" if not is_spell else "skill_editor.spell_preview")
 	save_button.text = Locale.t("skill_editor.save")
 	cancel_button.text = Locale.t("skill_editor.cancel")
+	if not is_spell:
+		_update_trigger_preview()
 
 
 func _ui_scale() -> float:
@@ -47,12 +75,12 @@ func _ui_scale() -> float:
 func _apply_responsive_layout() -> void:
 	var s := _ui_scale()
 
-	# Panel (centered 450x600)
+	# Panel (centered 520x640)
 	var panel := $Panel
-	panel.offset_left = -225.0 * s
-	panel.offset_top = -300.0 * s
-	panel.offset_right = 225.0 * s
-	panel.offset_bottom = 300.0 * s
+	panel.offset_left = -260.0 * s
+	panel.offset_top = -320.0 * s
+	panel.offset_right = 260.0 * s
+	panel.offset_bottom = 320.0 * s
 
 	# MarginContainer
 	var margin := $Panel/MarginContainer
@@ -111,8 +139,9 @@ func _apply_theme() -> void:
 	UITheme.apply_button(add_effect_btn, "primary")
 	UITheme.apply_button(save_button, "primary")
 	UITheme.apply_button(cancel_button, "secondary")
-	UITheme.apply_label(skill_summary, true)
-	for path in ["SkillNameLabel", "TriggerLabel", "EffectsLabel"]:
+	for soft_label in [help_label, trigger_hint_label, trigger_preview_label, effects_hint_label, skill_summary]:
+		UITheme.apply_label(soft_label, true)
+	for path in ["SkillNameLabel", "TriggerLabel", "EffectsLabel", "PreviewLabel"]:
 		var label := $Panel/MarginContainer/ScrollContainer/VBoxContainer.get_node(path) as Label
 		UITheme.apply_label(label)
 
@@ -137,12 +166,18 @@ func _ready():
 
 func _setup_trigger_dropdown():
 	trigger_select.clear()
-	var trigger_keys := [
-		SkillEngine.TRIGGER_ON_ATTACK, SkillEngine.TRIGGER_ON_ACTIVATE,
-		SkillEngine.TRIGGER_ON_SUMMON, SkillEngine.TRIGGER_ON_DEATH, SkillEngine.TRIGGER_ON_DAMAGED,
-	]
-	for i in range(trigger_keys.size()):
-		trigger_select.add_item(Locale.term("trigger", trigger_keys[i]), i)
+	var is_spell: bool = PlayerData.card_draft.get("card_type", "minion") == "spell"
+	if is_spell:
+		# Spells have only one valid trigger: on_cast — no dropdown needed.
+		trigger_select.add_item(Locale.term("trigger", SkillEngine.TRIGGER_ON_CAST), 0)
+		trigger_select.disabled = true
+		trigger_hint_label.text = Locale.t("skill_editor.trigger_help.on_cast")
+		trigger_select.visible = false
+		trigger_hint_label.visible = true
+	else:
+		var trigger_keys := _trigger_keys()
+		for i in range(trigger_keys.size()):
+			trigger_select.add_item(Locale.term("trigger", trigger_keys[i]), i)
 
 
 func _setup_skill_probability_row():
@@ -176,10 +211,80 @@ func _setup_skill_probability_row():
 	vbox.add_child(row)
 	vbox.move_child(row, idx + 1)
 
+	# Max uses row (限定技)
+	setup_max_uses_row(vbox, idx + 2)
+	# Skill type row (天赋/普通)
+	setup_skill_type_row(vbox, idx + 3)
+
+
+func setup_max_uses_row(vbox: VBoxContainer, target_idx: int) -> void:
+	var s := _ui_scale()
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", int(8 * s))
+
+	var lbl := Label.new()
+	lbl.text = Locale.t("skill_editor.max_uses")
+	lbl.add_theme_font_size_override("font_size", max(10, int(14 * s)))
+	UITheme.apply_label(lbl)
+	row.add_child(lbl)
+
+	max_uses_spin = SpinBox.new()
+	max_uses_spin.custom_minimum_size = Vector2(60 * s, 0)
+	max_uses_spin.min_value = 0.0
+	max_uses_spin.max_value = 99.0
+	max_uses_spin.value = 0.0
+	UITheme.apply_input(max_uses_spin)
+	max_uses_spin.value_changed.connect(func(_f: float): _update_summary())
+	row.add_child(max_uses_spin)
+
+	vbox.add_child(row)
+	vbox.move_child(row, target_idx)
+
+
+func setup_skill_type_row(vbox: VBoxContainer, target_idx: int) -> void:
+	var s := _ui_scale()
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", int(8 * s))
+
+	var lbl := Label.new()
+	lbl.text = Locale.t("skill_editor.skill_type")
+	lbl.add_theme_font_size_override("font_size", max(10, int(14 * s)))
+	UITheme.apply_label(lbl)
+	row.add_child(lbl)
+
+	skill_type_select = OptionButton.new()
+	skill_type_select.add_item(Locale.t("skill_editor.skill_type_normal"))
+	skill_type_select.add_item(Locale.t("skill_editor.skill_type_talent"))
+	skill_type_select.selected = 0
+	UITheme.apply_button(skill_type_select, "secondary")
+	skill_type_select.item_selected.connect(func(_i: int): _update_summary())
+	row.add_child(skill_type_select)
+
+	vbox.add_child(row)
+	vbox.move_child(row, target_idx)
+	skill_type_row = row
+	_update_skill_type_visibility()
+
+
+func _update_skill_type_visibility() -> void:
+	if skill_type_row == null:
+		return
+	var is_spell: bool = PlayerData.card_draft.get("card_type", "minion") == "spell"
+	var trigger_key: String = _selected_trigger_key()
+	# Talent option only applies to passive skills (not on_activate, not spell).
+	var show_talent: bool = not is_spell and trigger_key != SkillEngine.TRIGGER_ON_ACTIVATE
+	skill_type_row.visible = show_talent
+	if not show_talent and skill_type_select and skill_type_select.selected != 0:
+		skill_type_select.selected = 0
+
 
 func _connect_signals():
 	skill_name_input.text_changed.connect(func(_t: String): _update_summary())
-	trigger_select.item_selected.connect(func(_i: int): _update_summary())
+	trigger_select.item_selected.connect(func(_i: int):
+		_update_trigger_preview()
+		_update_skill_type_visibility()
+		_update_summary()
+	)
 	add_effect_btn.pressed.connect(func(): _open_effect_popup(-1))
 	save_button.pressed.connect(_on_save_pressed)
 	cancel_button.pressed.connect(_on_cancel_pressed)
@@ -194,6 +299,36 @@ func _apply_dynamic_theme(root: Node) -> void:
 		elif child is SpinBox or child is LineEdit:
 			UITheme.apply_input(child)
 		_apply_dynamic_theme(child)
+
+
+func _trigger_keys() -> Array:
+	if PlayerData.card_draft.get("card_type", "minion") == "parasite":
+		return [
+			SkillEngine.TRIGGER_ON_ATTACK,
+			SkillEngine.TRIGGER_ON_DAMAGED,
+			SkillEngine.TRIGGER_ON_DEATH,
+		]
+	return [
+		SkillEngine.TRIGGER_ON_ATTACK, SkillEngine.TRIGGER_ON_ACTIVATE,
+		SkillEngine.TRIGGER_ON_SUMMON, SkillEngine.TRIGGER_ON_DEATH, SkillEngine.TRIGGER_ON_DAMAGED,
+	]
+
+
+func _selected_trigger_key() -> String:
+	# Spell cards are locked to on_cast — ignore the (hidden) dropdown.
+	if PlayerData.card_draft.get("card_type", "minion") == "spell":
+		return SkillEngine.TRIGGER_ON_CAST
+	var keys := _trigger_keys()
+	if trigger_select.selected < 0 or trigger_select.selected >= keys.size():
+		return SkillEngine.TRIGGER_ON_ATTACK
+	return keys[trigger_select.selected]
+
+
+func _update_trigger_preview() -> void:
+	if trigger_preview_label == null or trigger_select == null:
+		return
+	var trigger_key: String = _selected_trigger_key()
+	trigger_preview_label.text = Locale.t("skill_editor.trigger_help.%s" % trigger_key)
 
 
 # ============================================
@@ -333,25 +468,43 @@ func _open_effect_popup(idx: int):
 	UITheme.apply_label(warning_label, true)
 	vb.add_child(warning_label)
 
+	var effect_preview_label := Label.new()
+	effect_preview_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	effect_preview_label.add_theme_font_size_override("font_size", max(9, int(12 * s)))
+	UITheme.apply_label(effect_preview_label, true)
+	vb.add_child(effect_preview_label)
+
+	# Create effect_sel early so lambdas below can capture a valid reference.
+	var effect_sel := OptionButton.new()
+	_setup_effect_dropdown(effect_sel)
+
 	var _update_target_warning = func():
-		var trigger_keys := [
-			SkillEngine.TRIGGER_ON_ATTACK, SkillEngine.TRIGGER_ON_ACTIVATE,
-			SkillEngine.TRIGGER_ON_SUMMON, SkillEngine.TRIGGER_ON_DEATH, SkillEngine.TRIGGER_ON_DAMAGED,
-		]
-		var trigger_key: String = trigger_keys[trigger_select.selected]
+		var trigger_key: String = _selected_trigger_key()
 		var target_key: String = TARGET_KEYS[target_sel.selected]
+		var effect_key: String = EFFECT_KEYS[effect_sel.selected]
+		# Zero-cost effect targets the hand — battlefield target warnings don't apply.
+		if effect_key == SkillEngine.EFFECT_ZERO_COST:
+			warning_label.text = ""
+			warning_label.visible = false
+			return
 		var msg := _target_warning_for(trigger_key, target_key, target_sel.disabled)
 		warning_label.text = msg
 		warning_label.visible = msg != ""
 
 	var _update_target_side = func():
 		var target_key: String = TARGET_KEYS[target_sel.selected]
-		var disabled := target_sel.disabled or _TargetResolver.is_directed_target(target_key)
+		var effect_key: String = EFFECT_KEYS[effect_sel.selected]
+		# Zero-cost effect always targets own hand — target_side is irrelevant.
+		var is_hand_effect: bool = effect_key == SkillEngine.EFFECT_ZERO_COST
+		var disabled: bool = target_sel.disabled or target_key in [SkillEngine.TARGET_SELF, SkillEngine.TARGET_SELF_SIDES] or is_hand_effect
 		side_sel.disabled = disabled
 		if disabled:
 			side_sel.selected = _idx_of(SkillEngine.TARGET_SIDE_ALL, TARGET_SIDE_KEYS)
+		elif target_key in [SkillEngine.TARGET_SINGLE, SkillEngine.TARGET_SIDES] and TARGET_SIDE_KEYS[side_sel.selected] == SkillEngine.TARGET_SIDE_ALL:
+			side_sel.selected = _idx_of(SkillEngine.TARGET_SIDE_ENEMY, TARGET_SIDE_KEYS)
 		_update_target_warning.call()
 	target_sel.item_selected.connect(func(_i: int): _update_target_side.call())
+	side_sel.item_selected.connect(func(_i: int): _update_target_side.call())
 
 	# Effect + Value row
 	var r1 := HBoxContainer.new()
@@ -360,8 +513,6 @@ func _open_effect_popup(idx: int):
 	effect_label.text = Locale.t("skill_editor.effect")
 	effect_label.add_theme_font_size_override("font_size", max(10, int(14 * s)))
 	r1.add_child(effect_label)
-	var effect_sel := OptionButton.new()
-	_setup_effect_dropdown(effect_sel)
 	effect_sel.size_flags_horizontal = 3
 	effect_sel.custom_minimum_size = Vector2(100 * s, 0)
 	r1.add_child(effect_sel)
@@ -553,6 +704,27 @@ func _open_effect_popup(idx: int):
 		var buff_key: String = BUFF_KEYS[buff_sel.selected]
 		pct_label.visible = (effect_key == SkillEngine.EFFECT_ADD_BUFF and buff_key in [SkillEngine.BUFF_DAMAGE_REDUCTION, SkillEngine.BUFF_MISFORTUNE])
 
+	var _update_effect_labels = func():
+		var effect_key: String = EFFECT_KEYS[effect_sel.selected]
+		var is_pile_select: bool = effect_key in [SkillEngine.EFFECT_VIEW_DISCARD, SkillEngine.EFFECT_VIEW_DECK]
+		# Effects that logically support negative values
+		var allows_negative: bool = effect_key in [SkillEngine.EFFECT_GAIN_MANA, SkillEngine.EFFECT_GAIN_ATTACK, SkillEngine.EFFECT_GAIN_MAX_HP]
+		if is_pile_select:
+			val_label.text = Locale.t("skill_editor.keep_count")
+			rcount_label.text = Locale.t("skill_editor.draw_count")
+			rcount_spin.max_value = 30.0
+		else:
+			val_label.text = Locale.t("skill_editor.value")
+			rcount_label.text = Locale.t("skill_editor.max_targets")
+			rcount_spin.max_value = 10.0
+		val_spin.min_value = -100.0 if allows_negative else 1.0
+		val_spin.suffix = "%" if (effect_key == SkillEngine.EFFECT_ADD_BUFF and BUFF_KEYS[buff_sel.selected] in [SkillEngine.BUFF_DAMAGE_REDUCTION, SkillEngine.BUFF_MISFORTUNE]) else ""
+		min_spin.min_value = -100.0 if allows_negative else 1.0
+		if val_spin.value < val_spin.min_value:
+			val_spin.value = val_spin.min_value
+		if min_spin.value < min_spin.min_value:
+			min_spin.value = min_spin.min_value
+
 	# Value-mode toggle: 0=fixed (val_spin), 1=random (rand_row), 2=variable (var_row)
 	var _update_value_mode = func(m: int):
 		var effect_key: String = EFFECT_KEYS[effect_sel.selected]
@@ -574,6 +746,7 @@ func _open_effect_popup(idx: int):
 			val_spin.editable = true
 		else:
 			val_spin.editable = not BUFF_KEYS[buff_sel.selected] in [SkillEngine.BUFF_TAUNT, SkillEngine.BUFF_SILENCE]
+		_update_effect_labels.call()
 		_update_value_mode.call(mode_sel.selected)
 		_update_pct.call()
 	)
@@ -594,6 +767,50 @@ func _open_effect_popup(idx: int):
 		condition_detail_row.visible = has_condition and not uses_buff
 		condition_buff_row.visible = uses_buff
 	condition_sel.item_selected.connect(func(i: int): _update_condition_mode.call(i))
+
+	var _preview_effect = func() -> Dictionary:
+		var preview := {
+			"target": TARGET_KEYS[target_sel.selected],
+			"target_side": TARGET_SIDE_KEYS[side_sel.selected],
+			"effect": EFFECT_KEYS[effect_sel.selected],
+			"value": float(val_spin.value),
+			"buff_id": "",
+			"duration": 0,
+			"random_count": int(rcount_spin.value),
+			"probability": int(eff_prob_spin.value),
+		}
+		var vmode: int = mode_sel.selected
+		if vmode == 1:
+			preview.value_min = int(min_spin.value)
+			preview.value_max = int(max_spin.value)
+		elif vmode == 2:
+			preview.value_var = VAR_KEYS[var_sel.selected]
+			preview.value_offset = int(off_spin.value)
+		if EFFECT_KEYS[effect_sel.selected] == SkillEngine.EFFECT_ADD_BUFF:
+			preview.buff_id = BUFF_KEYS[buff_sel.selected]
+			preview.duration = int(dur_spin.value)
+		var condition_type: String = CONDITION_KEYS[condition_sel.selected]
+		if condition_type != SkillEngine.CONDITION_NONE:
+			preview.condition_type = condition_type
+			if condition_type == SkillEngine.CONDITION_TARGET_HAS_BUFF:
+				preview.condition_buff_id = BUFF_KEYS[condition_buff_sel.selected]
+			else:
+				preview.condition_op = CONDITION_OP_KEYS[condition_op_sel.selected]
+				preview.condition_value = int(condition_value_spin.value)
+		if preview.effect in EFFECTS_FORCE_SELF:
+			preview.target = SkillEngine.TARGET_SELF
+			preview.target_side = SkillEngine.TARGET_SIDE_ALL
+		return _TargetResolver.normalize_effect_target(preview)
+
+	var _update_effect_preview = func():
+		var sentence := _TextFormatter.format_effect_sentence(_preview_effect.call())
+		effect_preview_label.text = Locale.t("skill_editor.effect_preview", [sentence])
+
+	var _connect_preview_updates = func():
+		for control in [target_sel, side_sel, effect_sel, buff_sel, mode_sel, var_sel, condition_sel, condition_op_sel, condition_buff_sel]:
+			control.item_selected.connect(func(_i: int): _update_effect_preview.call())
+		for control in [val_spin, min_spin, max_spin, off_spin, eff_prob_spin, rcount_spin, dur_spin, condition_value_spin]:
+			control.value_changed.connect(func(_value: float): _update_effect_preview.call())
 
 	# Buttons
 	var btns := HBoxContainer.new()
@@ -661,18 +878,35 @@ func _open_effect_popup(idx: int):
 		condition_value_spin.value = float(eff.get("condition_value", 1))
 		condition_buff_sel.selected = _idx_of(eff.get("condition_buff_id", SkillEngine.BUFF_TAUNT), BUFF_KEYS)
 		_update_condition_mode.call(condition_sel.selected)
+		_update_effect_labels.call()
 		_update_value_mode.call(mode_sel.selected)
 		_update_pct.call()
 	else:
+		_update_effect_labels.call()
 		_update_value_mode.call(0)
 		_update_condition_mode.call(0)
 		_update_target_side.call()
+	_update_editor_dropdown_tooltip(target_sel, "target", TARGET_KEYS)
+	_update_editor_dropdown_tooltip(side_sel, "target_side", TARGET_SIDE_KEYS)
+	_update_editor_dropdown_tooltip(effect_sel, "effect", EFFECT_KEYS)
+	_update_editor_dropdown_tooltip(buff_sel, "buff", BUFF_KEYS)
+	_update_editor_dropdown_tooltip(var_sel, "value_var", VAR_KEYS)
+	_update_editor_dropdown_tooltip(condition_buff_sel, "buff", BUFF_KEYS)
+	_update_condition_dropdown_tooltip(condition_sel)
+	_connect_preview_updates.call()
+	_update_effect_preview.call()
 
 
 func _on_popup_ok():
+	if popup_form.is_empty():
+		return
+	var selected_target: String = TARGET_KEYS[popup_form.target_sel.selected]
+	var selected_side: String = TARGET_SIDE_KEYS[popup_form.side_sel.selected]
+	if selected_target in [SkillEngine.TARGET_SINGLE, SkillEngine.TARGET_SIDES] and selected_side == SkillEngine.TARGET_SIDE_ALL:
+		selected_side = SkillEngine.TARGET_SIDE_ENEMY
 	var eff := {
-		"target": TARGET_KEYS[popup_form.target_sel.selected],
-		"target_side": TARGET_SIDE_KEYS[popup_form.side_sel.selected],
+		"target": selected_target,
+		"target_side": selected_side,
 		"effect": EFFECT_KEYS[popup_form.effect_sel.selected],
 		"value": float(popup_form.val_spin.value),
 		"buff_id": "",
@@ -703,8 +937,6 @@ func _on_popup_ok():
 			eff.condition_value = int(popup_form.condition_value_spin.value)
 	if eff.effect in EFFECTS_FORCE_SELF:
 		eff.target = SkillEngine.TARGET_SELF
-		eff.target_side = SkillEngine.TARGET_SIDE_ALL
-	if _TargetResolver.is_directed_target(eff.target):
 		eff.target_side = SkillEngine.TARGET_SIDE_ALL
 	eff = _TargetResolver.normalize_effect_target(eff)
 
@@ -755,8 +987,11 @@ const EFFECT_KEYS := [
 	SkillEngine.EFFECT_GAIN_MANA,
 	SkillEngine.EFFECT_GAIN_ATTACK,
 	SkillEngine.EFFECT_GAIN_MAX_HP,
+	SkillEngine.EFFECT_VIEW_DISCARD,
+	SkillEngine.EFFECT_VIEW_DECK,
+	SkillEngine.EFFECT_ZERO_COST,
 ]
-const EFFECTS_FORCE_SELF := [SkillEngine.EFFECT_DRAW_CARDS, SkillEngine.EFFECT_GAIN_MANA]
+const EFFECTS_FORCE_SELF := [SkillEngine.EFFECT_DRAW_CARDS, SkillEngine.EFFECT_GAIN_MANA, SkillEngine.EFFECT_VIEW_DISCARD, SkillEngine.EFFECT_VIEW_DECK]
 const EFFECTS_NO_VALUE := [SkillEngine.EFFECT_CLEANSE, SkillEngine.EFFECT_DISPEL]
 const BUFF_KEYS := [
 	SkillEngine.BUFF_ATK_BOOST,
@@ -767,6 +1002,7 @@ const BUFF_KEYS := [
 	SkillEngine.BUFF_TAUNT,
 	SkillEngine.BUFF_SILENCE,
 	SkillEngine.BUFF_MISFORTUNE,
+	SkillEngine.BUFF_IMMUNE_LETHAL,
 ]
 const VAR_KEYS := [
 	SkillEngine.VAR_FIELD_TOTAL, SkillEngine.VAR_FIELD_ALLY, SkillEngine.VAR_FIELD_ENEMY,
@@ -790,41 +1026,35 @@ const CONDITION_OP_KEYS := [
 func _target_warning_for(trigger_key: String, target_key: String, target_disabled: bool = false) -> String:
 	if target_disabled:
 		return Locale.t("skill_editor.warning_forced_self")
-	if _TargetResolver.is_directed_target(target_key):
-		if target_key in [SkillEngine.TARGET_SINGLE, SkillEngine.TARGET_SIDES] and trigger_key == SkillEngine.TRIGGER_ON_DEATH:
+	if target_key in [SkillEngine.TARGET_SINGLE, SkillEngine.TARGET_SIDES]:
+		if trigger_key == SkillEngine.TRIGGER_ON_DEATH:
 			return Locale.t("skill_editor.warning_death_directed")
-		if target_key in [SkillEngine.TARGET_SINGLE, SkillEngine.TARGET_SIDES] and trigger_key in [SkillEngine.TRIGGER_ON_ACTIVATE, SkillEngine.TRIGGER_ON_SUMMON]:
+		if trigger_key == SkillEngine.TRIGGER_ON_ATTACK:
+			return Locale.t("skill_editor.warning_attack_target")
+		if trigger_key == SkillEngine.TRIGGER_ON_DAMAGED:
+			return Locale.t("skill_editor.warning_damaged_source")
+		if trigger_key in [SkillEngine.TRIGGER_ON_ACTIVATE, SkillEngine.TRIGGER_ON_SUMMON]:
 			return Locale.t("skill_editor.warning_manual_target")
-		return Locale.t("skill_editor.warning_side_ignored")
+		return Locale.t("skill_editor.warning_directed_side")
 	if trigger_key == SkillEngine.TRIGGER_ON_DEATH:
 		return Locale.t("skill_editor.warning_death_filter")
 	return Locale.t("skill_editor.warning_side_filter")
 
 
 func _setup_target_dropdown(dd: OptionButton):
-	dd.clear()
-	for i in range(TARGET_KEYS.size()):
-		dd.add_item(Locale.term("target", TARGET_KEYS[i]), i)
+	_setup_editor_dropdown(dd, "target", TARGET_KEYS)
 
 func _setup_target_side_dropdown(dd: OptionButton):
-	dd.clear()
-	for i in range(TARGET_SIDE_KEYS.size()):
-		dd.add_item(Locale.term("target_side", TARGET_SIDE_KEYS[i]), i)
+	_setup_editor_dropdown(dd, "target_side", TARGET_SIDE_KEYS)
 
 func _setup_effect_dropdown(dd: OptionButton):
-	dd.clear()
-	for i in range(EFFECT_KEYS.size()):
-		dd.add_item(Locale.term("effect", EFFECT_KEYS[i]), i)
+	_setup_editor_dropdown(dd, "effect", EFFECT_KEYS)
 
 func _setup_buff_dropdown(dd: OptionButton):
-	dd.clear()
-	for i in range(BUFF_KEYS.size()):
-		dd.add_item(Locale.term("buff", BUFF_KEYS[i]), i)
+	_setup_editor_dropdown(dd, "buff", BUFF_KEYS)
 
 func _setup_var_dropdown(dd: OptionButton):
-	dd.clear()
-	for i in range(VAR_KEYS.size()):
-		dd.add_item(Locale.term("value_var", VAR_KEYS[i]), i)
+	_setup_editor_dropdown(dd, "value_var", VAR_KEYS)
 
 func _setup_condition_dropdown(dd: OptionButton):
 	dd.clear()
@@ -832,11 +1062,43 @@ func _setup_condition_dropdown(dd: OptionButton):
 		var key: String = CONDITION_KEYS[i]
 		var label := Locale.t("skill_editor.condition_none") if key == SkillEngine.CONDITION_NONE else Locale.term("condition", key)
 		dd.add_item(label, i)
+		if key != SkillEngine.CONDITION_NONE:
+			dd.get_popup().set_item_tooltip(i, _editor_term("condition", key))
+	_update_condition_dropdown_tooltip(dd)
+	dd.item_selected.connect(func(_i: int): _update_condition_dropdown_tooltip(dd))
 
 func _setup_condition_op_dropdown(dd: OptionButton):
 	dd.clear()
 	for i in range(CONDITION_OP_KEYS.size()):
 		dd.add_item(Locale.term("condition_op", CONDITION_OP_KEYS[i]), i)
+
+func _setup_editor_dropdown(dd: OptionButton, category: String, keys: Array) -> void:
+	dd.clear()
+	for i in range(keys.size()):
+		var key: String = keys[i]
+		dd.add_item(Locale.term(category, key), i)
+		dd.get_popup().set_item_tooltip(i, _editor_term(category, key))
+	_update_editor_dropdown_tooltip(dd, category, keys)
+	dd.item_selected.connect(func(_i: int): _update_editor_dropdown_tooltip(dd, category, keys))
+
+func _update_editor_dropdown_tooltip(dd: OptionButton, category: String, keys: Array) -> void:
+	if dd.selected < 0 or dd.selected >= keys.size():
+		dd.tooltip_text = ""
+		return
+	dd.tooltip_text = _editor_term(category, keys[dd.selected])
+
+func _update_condition_dropdown_tooltip(dd: OptionButton) -> void:
+	if dd.selected < 0 or dd.selected >= CONDITION_KEYS.size():
+		dd.tooltip_text = ""
+		return
+	var key: String = CONDITION_KEYS[dd.selected]
+	dd.tooltip_text = "" if key == SkillEngine.CONDITION_NONE else _editor_term("condition", key)
+
+func _editor_term(category: String, value: String) -> String:
+	var label := Locale.term("editor_%s" % category, value)
+	if label == value:
+		return Locale.term(category, value)
+	return label
 
 func _idx_of(key: String, keys: Array) -> int:
 	var i := keys.find(key)
@@ -849,12 +1111,17 @@ func _idx_of(key: String, keys: Array) -> int:
 
 func _load_skill(skill: Dictionary):
 	skill_name_input.text = skill.get("skill_name", "")
-	trigger_select.selected = _idx_of(skill.get("trigger", SkillEngine.TRIGGER_ON_ATTACK), [
-		SkillEngine.TRIGGER_ON_ATTACK, SkillEngine.TRIGGER_ON_ACTIVATE,
-		SkillEngine.TRIGGER_ON_SUMMON, SkillEngine.TRIGGER_ON_DEATH, SkillEngine.TRIGGER_ON_DAMAGED,
-	])
+	if PlayerData.card_draft.get("card_type", "minion") == "spell":
+		trigger_select.selected = 0
+	else:
+		trigger_select.selected = _idx_of(skill.get("trigger", SkillEngine.TRIGGER_ON_ATTACK), _trigger_keys())
 	if skill_prob_spin:
 		skill_prob_spin.value = float(skill.get("probability", 100))
+	if max_uses_spin:
+		max_uses_spin.value = float(skill.get("max_uses", 0))
+	if skill_type_select:
+		skill_type_select.selected = 0 if skill.get("skill_type", SkillEngine.SKILL_TYPE_NORMAL) != SkillEngine.SKILL_TYPE_TALENT else 1
+	_update_skill_type_visibility()
 
 	var effects: Array = skill.get("effects", [])
 	if effects.is_empty() and not skill.get("effect", "").is_empty():
@@ -875,14 +1142,18 @@ func _load_skill(skill: Dictionary):
 func _build_skill() -> Dictionary:
 	if effect_data.is_empty():
 		return {}
-	var trigger_keys := [
-		SkillEngine.TRIGGER_ON_ATTACK, SkillEngine.TRIGGER_ON_ACTIVATE,
-		SkillEngine.TRIGGER_ON_SUMMON, SkillEngine.TRIGGER_ON_DEATH, SkillEngine.TRIGGER_ON_DAMAGED,
-	]
+	var is_spell: bool = PlayerData.card_draft.get("card_type", "minion") == "spell"
+	var trigger_key: String = SkillEngine.TRIGGER_ON_CAST if is_spell else _selected_trigger_key()
+	var skill_type_val: String = SkillEngine.SKILL_TYPE_NORMAL
+	# Talent only applies to passive skills (not on_activate, not spell).
+	if not is_spell and trigger_key != SkillEngine.TRIGGER_ON_ACTIVATE and skill_type_select and skill_type_select.selected == 1:
+		skill_type_val = SkillEngine.SKILL_TYPE_TALENT
 	return {
-		"skill_name": skill_name_input.text.strip_edges(),
-		"trigger": trigger_keys[trigger_select.selected],
+		"skill_name": PlayerData.card_draft.get("name", "") if is_spell else skill_name_input.text.strip_edges(),
+		"trigger": SkillEngine.TRIGGER_ON_CAST if is_spell else _selected_trigger_key(),
 		"probability": int(skill_prob_spin.value) if skill_prob_spin else 100,
+		"max_uses": int(max_uses_spin.value) if max_uses_spin else 0,
+		"skill_type": skill_type_val,
 		"effects": effect_data.duplicate(true),
 	}
 
@@ -893,15 +1164,24 @@ func _update_summary():
 
 
 func _format_skill(skill: Dictionary) -> String:
-	var sname: String = skill.get("skill_name", "?")
-	if sname == "":
-		sname = Locale.t("skill.no_name")
-	var tname: String = Locale.term("trigger", skill.get("trigger", SkillEngine.TRIGGER_ON_ATTACK))
-	var lines: String = "[%s] %s\n" % [sname, tname]
+	var is_spell: bool = PlayerData.card_draft.get("card_type", "minion") == "spell"
 	var sp: int = skill.get("probability", 100)
+	var max_uses: int = skill.get("max_uses", 0)
+	var skill_type: String = skill.get("skill_type", SkillEngine.SKILL_TYPE_NORMAL)
+	var effects: Array = skill.get("effects", [])
+	var lines := ""
+	if not is_spell:
+		var sname: String = skill.get("skill_name", "?")
+		if sname == "":
+			sname = Locale.t("skill.no_name")
+		var tname: String = Locale.term("trigger", skill.get("trigger", SkillEngine.TRIGGER_ON_ATTACK))
+		lines = "[%s] %s\n" % [sname, tname]
+		if skill_type == SkillEngine.SKILL_TYPE_TALENT:
+			lines += "  [天赋] "
 	if sp < 100:
 		lines += "  %s\n" % Locale.t("skill.chance", [sp])
-	var effects: Array = skill.get("effects", [])
+	if max_uses > 0:
+		lines += "  限定技 (最多 %d 次)\n" % max_uses
 	if effects.is_empty():
 		lines += "  %s" % Locale.t("skill.no_effects")
 	for i in range(effects.size()):
@@ -909,7 +1189,7 @@ func _format_skill(skill: Dictionary) -> String:
 		lines += "  %d. %s" % [i + 1, _TextFormatter.format_effect_sentence(eff)]
 		if i < effects.size() - 1:
 			lines += "\n"
-	return lines
+	return lines.strip_edges()
 
 
 # ============================================

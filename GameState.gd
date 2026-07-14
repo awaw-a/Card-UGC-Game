@@ -1,5 +1,8 @@
 extends RefCounted
 
+const SpellRules = preload("res://SpellRules.gd")
+const ParasiteRules = preload("res://ParasiteRules.gd")
+
 var player_field: BattleField
 var player2_field: BattleField
 var player_hand: Array = []
@@ -20,11 +23,13 @@ func init_game(draw_cb: Callable) -> void:
 		game_rng.seed = 4567
 	else:
 		game_rng.randomize()
-	player_field = BattleField.new("P1", 30, 10)
-	player2_field = BattleField.new("P2", 30, 10)
+	var cfg: Dictionary = PlayerData.battle_config
+	var start_hp: int = cfg.get("starting_hp", 30)
+	player_field = BattleField.new("P1", start_hp, 10)
+	player2_field = BattleField.new("P2", start_hp, 10)
 	_build_shared_deck()
-	draw_cards(3, player_hand)
-	draw_cards(3, player2_hand)
+	draw_cards(cfg.get("draw_per_turn", 2) + 1, player_hand)  # +1 for initial hand
+	draw_cards(cfg.get("draw_per_turn", 2) + 1, player2_hand)
 	current_player = 1
 	EventBus.game_started.emit()
 
@@ -41,10 +46,15 @@ func export_initial_state() -> Dictionary:
 		"turn_number": turn_number,
 		"is_player_turn": is_player_turn,
 		"first_switch": first_switch,
+		"battle_config": PlayerData.battle_config.duplicate(true),
 	}
 
 
 func apply_initial_state(state: Dictionary) -> void:
+	# Sync battle_config from authority so both players use the same rules.
+	var config: Dictionary = state.get("battle_config", {})
+	if not config.is_empty():
+		PlayerData.battle_config = config
 	_apply_field_state(player_field, state.get("player_field", {}))
 	_apply_field_state(player2_field, state.get("player2_field", {}))
 	player_hand = _deserialize_card_array(state.get("player_hand", []))
@@ -63,6 +73,7 @@ func _serialize_field(field: BattleField) -> Dictionary:
 		"max_player_hp": field.max_player_hp,
 		"current_mana": field.current_mana,
 		"max_mana": field.max_mana,
+		"temp_mana": field.temp_mana,
 		"slots": _serialize_slots(field.slots),
 	}
 
@@ -74,6 +85,7 @@ func _apply_field_state(field: BattleField, state: Dictionary) -> void:
 	field.max_player_hp = int(state.get("max_player_hp", field.max_player_hp))
 	field.current_mana = int(state.get("current_mana", field.current_mana))
 	field.max_mana = int(state.get("max_mana", field.max_mana))
+	field.temp_mana = int(state.get("temp_mana", 0))
 	field.slots = _deserialize_slots(state.get("slots", []))
 
 
@@ -151,11 +163,11 @@ func active_hand() -> Array:
 	return player_hand if current_player == 1 else player2_hand
 
 
-func make_skill_context(source_slot: int = -1, target_slot: int = -1) -> Dictionary:
-	return make_skill_context_for_player(current_player, source_slot, target_slot)
+func make_skill_context(source_slot: int = -1, target_slot: int = -1, target_player: int = 0) -> Dictionary:
+	return make_skill_context_for_player(current_player, source_slot, target_slot, target_player)
 
 
-func make_skill_context_for_player(player: int, source_slot: int = -1, target_slot: int = -1) -> Dictionary:
+func make_skill_context_for_player(player: int, source_slot: int = -1, target_slot: int = -1, target_player: int = 0) -> Dictionary:
 	var player_field_for_context = player_field if player == 1 else player2_field
 	var enemy_field_for_context = player2_field if player == 1 else player_field
 	var active_hand_for_context = player_hand if player == 1 else player2_hand
@@ -164,9 +176,12 @@ func make_skill_context_for_player(player: int, source_slot: int = -1, target_sl
 		"enemy_field": enemy_field_for_context,
 		"source_slot": source_slot,
 		"target_slot": target_slot,
+		"target_player": target_player,
 		"draw_callable": Callable(self, "draw_cards_for_player").bind(player),
 		"current_player": player,
 		"active_hand": active_hand_for_context,
+		"discard_pile": shared_discard,
+		"shared_deck": shared_deck,
 		"rng": game_rng,
 		"turn_number": turn_number,
 	}
@@ -219,6 +234,7 @@ func discard_card(card_data: CardData) -> bool:
 	var field = active_field()
 	for i in range(5):
 		if field.slots[i] == card_data:
+			ParasiteRules.release_all_to_discard(card_data, shared_discard)
 			card_data.reset_to_base()
 			shared_discard.append(card_data)
 			field.slots[i] = null
@@ -229,30 +245,78 @@ func discard_card(card_data: CardData) -> bool:
 
 
 # ============================================
-# Summon / skill activation
+# Summon / skill activation / spell cast
 # ============================================
 
 func summon_card(card_data: CardData, slot_index: int) -> bool:
+	if card_data != null and (card_data.is_spell() or card_data.is_parasite()):
+		return false
 	if not active_field().summon_card(card_data, slot_index):
 		return false
+	if card_data.zero_cost_until_deploy:
+		card_data.cost = card_data.base_cost
+		card_data.zero_cost_until_deploy = false
 	active_hand().erase(card_data)
 	return true
 
 
-func trigger_summon_skills(source_slot: int, target_slot: int, skill_index: int) -> void:
+func attach_parasite(hand_index: int, target_player: int, target_slot: int) -> bool:
+	var hand := active_hand()
+	if hand_index < 0 or hand_index >= hand.size():
+		return false
+	var card: CardData = hand[hand_index]
+	var target_field := player_field if target_player == 1 else player2_field
+	var target: CardData = target_field.slots[target_slot] if target_slot >= 0 and target_slot < target_field.slots.size() else null
+	var attach_check: Dictionary = ParasiteRules.can_attach(card, target, active_field().current_mana)
+	if not attach_check.get("ok", false):
+		return false
+	active_field().spend_mana(card.cost)
+	hand.remove_at(hand_index)
+	ParasiteRules.attach(card, target)
+	return true
+
+
+# Cast a spell from hand: consume mana, remove from hand, trigger on_cast
+# skill, then move the card directly to the discard pile (no slot occupation,
+# no +1 discard-mana refund).
+func cast_spell(hand_index: int, skill_index: int = SpellRules.CAST_SKILL_INDEX, target_slot: int = -1, target_player: int = 0) -> bool:
+	var hand := active_hand()
+	if hand_index < 0 or hand_index >= hand.size():
+		return false
+	var card: CardData = hand[hand_index]
+	var cast_check: Dictionary = SpellRules.can_cast(card, active_field().current_mana, skill_index)
+	if not cast_check.get("ok", false):
+		return false
+
+	var field := active_field()
+	field.spend_mana(card.cost)
+	hand.remove_at(hand_index)
+
+	var ctx := make_skill_context(-1, target_slot, target_player)
+	var normalized_skill: Dictionary = cast_check.get("skill", {})
+	if skill_index >= 0 and skill_index < card.skills.size():
+		card.skills[skill_index] = normalized_skill
+	SkillEngine.trigger_single_skill(card, skill_index, ctx)
+
+	card.reset_to_base()
+	shared_discard.append(card)
+	return true
+
+
+func trigger_summon_skills(source_slot: int, target_slot: int, skill_index: int, target_player: int = 0) -> void:
 	# Fires a single on_summon skill by index WITHOUT marking has_acted.
 	# on_summon skills are now manually activated (only on the summon turn);
 	# Main._on_skill_activated routes them here so they don't consume the
 	# card's attack/action for the turn, unlike trigger_activate_skills.
 	var card: CardData = active_field().slots[source_slot]
 	if card != null:
-		SkillEngine.trigger_single_skill(card, skill_index, make_skill_context(source_slot, target_slot))
+		SkillEngine.trigger_single_skill(card, skill_index, make_skill_context(source_slot, target_slot, target_player))
 
 
-func trigger_activate_skills(source_slot: int, target_slot: int, skill_index: int) -> void:
+func trigger_activate_skills(source_slot: int, target_slot: int, skill_index: int, target_player: int = 0) -> void:
 	var card: CardData = active_field().slots[source_slot]
 	if card != null:
-		SkillEngine.trigger_single_skill(card, skill_index, make_skill_context(source_slot, target_slot))
+		SkillEngine.trigger_single_skill(card, skill_index, make_skill_context(source_slot, target_slot, target_player))
 		card.has_acted = true
 
 
@@ -285,26 +349,44 @@ func execute_attack(atk_slot: int, def_slot: int) -> Dictionary:
 	var victim: CardData = opponent_field().slots[def_slot]
 	if attacker == null or victim == null:
 		return {}
-	if attacker.is_silenced():
+	if attacker.is_silenced() and not attacker.attack_ignores_silence:
 		print("%s is silenced and cannot attack!" % attacker.card_name)
 		return {}
 	var atk_dmg: int = attacker.effective_atk()
+	var thorns_before_damage: int = victim.get_thorns_damage()
 	print("%s attacks %s! (%d dmg)" % [attacker.card_name, victim.card_name, atk_dmg])
-	victim.take_damage(atk_dmg)
-	EventBus.hp_changed.emit(victim, -atk_dmg, victim.hp)
-	SkillEngine.trigger_skills(SkillEngine.TRIGGER_ON_DAMAGED, victim, make_skill_context(def_slot, atk_slot))
+	var declared_dmg := atk_dmg
+	var reduction_pct: int = victim.get_damage_reduction()
+	if reduction_pct > 0:
+		atk_dmg = int(floor(float(atk_dmg) * (1.0 - float(reduction_pct) / 100.0)))
+	var parasite_result := ParasiteRules.absorb_damage_detail(victim, atk_dmg, shared_discard)
+	atk_dmg = int(parasite_result.get("remaining", atk_dmg))
+	var parasite: CardData = parasite_result.get("parasite", null)
+	if parasite != null:
+		EventBus.parasite_damage_resolved.emit(victim, parasite, declared_dmg, int(parasite_result.get("absorbed", 0)), bool(parasite_result.get("destroyed", false)))
+	var temp_hp_before: int = victim.temp_hp
+	var actual_dmg: int = victim.take_damage_without_reduction(atk_dmg)
+	EventBus.damage_resolved.emit(attacker, victim, declared_dmg, actual_dmg, reduction_pct, temp_hp_before, "attack")
+	EventBus.hp_changed.emit(victim, -actual_dmg, victim.hp)
+	if victim.is_alive():
+		SkillEngine.trigger_skills(SkillEngine.TRIGGER_ON_DAMAGED, victim, make_skill_context_for_player(3 - current_player, def_slot, atk_slot))
+		ParasiteRules.trigger_host_passives(SkillEngine.TRIGGER_ON_DAMAGED, victim, make_skill_context_for_player(3 - current_player, def_slot, atk_slot))
 	attacker.has_acted = true
 	attacker.has_attacked = true
 	if not victim.is_alive():
 		active_field().add_mana(1)
 		print("  Kill! Mana +1")
 	EventBus.attack_declared.emit(attacker, victim, atk_slot, def_slot)
-	var thorns: int = victim.get_thorns_damage()
+	var thorns: int = thorns_before_damage
 	if thorns > 0:
 		print("  [Thorns] %s reflects %d dmg" % [victim.card_name, thorns])
-		attacker.take_damage(thorns)
-		EventBus.hp_changed.emit(attacker, -thorns, attacker.hp)
+		var attacker_reduction: int = attacker.get_damage_reduction()
+		var attacker_temp_before: int = attacker.temp_hp
+		var thorns_actual: int = attacker.take_damage(thorns)
+		EventBus.damage_resolved.emit(victim, attacker, thorns, thorns_actual, attacker_reduction, attacker_temp_before, "thorns")
+		EventBus.hp_changed.emit(attacker, -thorns_actual, attacker.hp)
 	SkillEngine.trigger_skills(SkillEngine.TRIGGER_ON_ATTACK, attacker, make_skill_context(atk_slot, def_slot))
+	ParasiteRules.trigger_host_passives(SkillEngine.TRIGGER_ON_ATTACK, attacker, make_skill_context(atk_slot, def_slot))
 	return { "attacker_died": not attacker.is_alive(), "victim_died": not victim.is_alive() }
 
 
@@ -315,21 +397,36 @@ func execute_attack(atk_slot: int, def_slot: int) -> Dictionary:
 func cleanup_deaths() -> Dictionary:
 	var p1_dead: Array = []
 	var p2_dead: Array = []
+	var death_comp: bool = PlayerData.battle_config.get("death_compensation", false)
 	for i in range(5):
 		if player_field.slots[i] != null and not player_field.slots[i].is_alive():
-			print("%s died!" % player_field.slots[i].card_name)
-			SkillEngine.trigger_skills(SkillEngine.TRIGGER_ON_DEATH, player_field.slots[i], make_skill_context_for_player(1, i, -1))
-			player_field.slots[i].reset_to_base()
-			shared_discard.append(player_field.slots[i])
-			player_field.slots[i] = null
+			var dead_card: CardData = player_field.slots[i]
+			print("%s died!" % dead_card.card_name)
+			SkillEngine.trigger_skills(SkillEngine.TRIGGER_ON_DEATH, dead_card, make_skill_context_for_player(1, i, -1))
+			ParasiteRules.trigger_host_passives(SkillEngine.TRIGGER_ON_DEATH, dead_card, make_skill_context_for_player(1, i, -1))
+			if player_field.slots[i] == dead_card:
+				ParasiteRules.release_all_to_discard(dead_card, shared_discard)
+				dead_card.reset_to_base()
+				shared_discard.append(dead_card)
+				player_field.slots[i] = null
 			p1_dead.append(i)
+			if death_comp:
+				draw_cards_for_player(1, 1)
+				print("[DeathComp] P1 draws 1 card (compensation for %s)" % dead_card.card_name)
 		if player2_field.slots[i] != null and not player2_field.slots[i].is_alive():
-			print("%s died!" % player2_field.slots[i].card_name)
-			SkillEngine.trigger_skills(SkillEngine.TRIGGER_ON_DEATH, player2_field.slots[i], make_skill_context_for_player(2, i, -1))
-			player2_field.slots[i].reset_to_base()
-			shared_discard.append(player2_field.slots[i])
-			player2_field.slots[i] = null
+			var dead_card: CardData = player2_field.slots[i]
+			print("%s died!" % dead_card.card_name)
+			SkillEngine.trigger_skills(SkillEngine.TRIGGER_ON_DEATH, dead_card, make_skill_context_for_player(2, i, -1))
+			ParasiteRules.trigger_host_passives(SkillEngine.TRIGGER_ON_DEATH, dead_card, make_skill_context_for_player(2, i, -1))
+			if player2_field.slots[i] == dead_card:
+				ParasiteRules.release_all_to_discard(dead_card, shared_discard)
+				dead_card.reset_to_base()
+				shared_discard.append(dead_card)
+				player2_field.slots[i] = null
 			p2_dead.append(i)
+			if death_comp:
+				draw_cards_for_player(1, 2)
+				print("[DeathComp] P2 draws 1 card (compensation for %s)" % dead_card.card_name)
 	return { "p1": p1_dead, "p2": p2_dead }
 
 
@@ -339,6 +436,8 @@ func cleanup_deaths() -> Dictionary:
 
 func end_player_turn() -> Dictionary:
 	is_player_turn = false
+	# Clear current player's temp mana (vanishes at turn end)
+	active_field().clear_temp_mana()
 	# Reset charmed card costs
 	for card in player_hand:
 		if card != null: card.reset_charm_cost()
@@ -357,20 +456,24 @@ func end_player_turn() -> Dictionary:
 		active_field().add_mana(refund_total)
 		print("[Mana+] P%d gains %d mana at turn end (%d/%d)" % [current_player, refund_total, active_field().current_mana, active_field().max_mana])
 
-	# Tick all buffs and reset temp HP
+	# Tick buffs owned by the next player, then clear that player's old shields.
+	# Shields gained this turn stay through the opponent's turn and expire when
+	# their owner is about to act again.
 	var tick_owner: int = 2 if current_player == 1 else 1
 	for slot in player_field.slots:
 		if slot != null:
 			var hp_before: int = slot.hp
 			slot.tick_buffs(tick_owner)
-			slot.temp_hp = 0
+			if tick_owner == 1:
+				slot.temp_hp = 0
 			if slot.hp != hp_before:
 				EventBus.hp_changed.emit(slot, slot.hp - hp_before, slot.hp)
 	for slot in player2_field.slots:
 		if slot != null:
 			var hp_before: int = slot.hp
 			slot.tick_buffs(tick_owner)
-			slot.temp_hp = 0
+			if tick_owner == 2:
+				slot.temp_hp = 0
 			if slot.hp != hp_before:
 				EventBus.hp_changed.emit(slot, slot.hp - hp_before, slot.hp)
 
@@ -416,6 +519,15 @@ func _process_empty_field_damage() -> Dictionary:
 		else:
 			player2_field.damage_player(total_dmg)
 		print("[EmptyField] P%d board empty — P%d deals %d direct damage to P%d" % [damaged_player, attacking_player, total_dmg, damaged_player])
+		# Face damage compensation: 1 temp mana per attacking card
+		if PlayerData.battle_config.get("face_damage_compensation", false):
+			var attacker_count: int = cards_hit.size()
+			if attacker_count > 0:
+				if damaged_player == 1:
+					player_field.add_temp_mana(attacker_count)
+				else:
+					player2_field.add_temp_mana(attacker_count)
+				print("[FaceComp] P%d gains %d temp mana (compensation for %d attacking cards)" % [damaged_player, attacker_count, attacker_count])
 
 	return {
 		"triggered": true,
@@ -430,14 +542,19 @@ func start_new_turn() -> void:
 	is_player_turn = true
 	current_player = 2 if current_player == 1 else 1
 
-	var draw_amount: int = 2
+	var cfg: Dictionary = PlayerData.battle_config
+	var mana_per_turn: int = cfg.get("mana_per_turn", 2)
+	var draw_amount: int = cfg.get("draw_per_turn", 2)
 	if first_switch:
-		# First P1→P2 switch: half benefits as catch-up
-		active_field().add_mana(1)
-		draw_amount = 1
+		# First P1→P2 switch: half benefits as catch-up + extra compensation
+		var extra_mana: int = cfg.get("second_extra_mana", 0)
+		var extra_cards: int = cfg.get("second_extra_cards", 0)
+		active_field().add_mana(max(1, mana_per_turn / 2) + extra_mana)
+		draw_amount = max(1, draw_amount / 2) + extra_cards
 		first_switch = false
 	else:
-		active_field().reset_mana_for_new_turn()
+		# Standard mana restoration per turn
+		active_field().current_mana = min(active_field().max_mana, active_field().current_mana + mana_per_turn)
 
 	for slot in player_field.slots:
 		if slot != null:
@@ -455,7 +572,10 @@ func start_new_turn() -> void:
 	if current_player == 1:
 		turn_number += 1
 
-	draw_cards(draw_amount)
+	if draw_callable.is_valid():
+		draw_callable.call(draw_amount)
+	else:
+		draw_cards(draw_amount)
 
 	print("Turn %d start! Player %d (Mana: %d/%d)" % [turn_number, current_player, active_field().current_mana, active_field().max_mana])
 	EventBus.turn_started.emit(turn_number)

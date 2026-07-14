@@ -142,6 +142,23 @@ static func starter_library() -> Array:
 				_fx(SkillEngine.TARGET_SELF, SkillEngine.EFFECT_GAIN_MAX_HP, 3),
 			]),
 		]),
+
+		# --- 共生虫(寄生): 附着到己方或敌方单位，给予攻击并优先承伤 ---
+		_parasite_card("共生虫", 2, 3, 2),
+
+		# --- 火球术(法术): 对单个敌人造成 4 点伤害 ---
+		_spell_card("火球术", 3, [
+			_fx_skill("火球", SkillEngine.TRIGGER_ON_CAST, [
+				_fx(SkillEngine.TARGET_SINGLE, SkillEngine.EFFECT_DAMAGE, 4),
+			]),
+		]),
+
+		# --- 智慧祷言(法术): 抽 2 张牌 ---
+		_spell_card("智慧祷言", 2, [
+			_fx_skill("智慧祷言", SkillEngine.TRIGGER_ON_CAST, [
+				_fx(SkillEngine.TARGET_SELF, SkillEngine.EFFECT_DRAW_CARDS, 2),
+			]),
+		]),
 	]
 
 
@@ -264,3 +281,19 @@ static func _fx_condition(target: String, effect: String, value: int, condition_
 	eff["condition_op"] = condition_op
 	eff["condition_value"] = condition_value
 	return eff
+
+
+# Build a parasite card: a card that attaches to a unit, grants its attack,
+# and loses parasite HP before the host takes directed damage.
+static func _parasite_card(sname: String, cost: int, hp: int, atk: int) -> CardData:
+	var card := CardData.new(sname, cost, hp, atk, [])
+	card.card_type = "parasite"
+	return card
+
+
+# Build a spell card: a card with no body (hp/atk = 0) that triggers on_cast
+# when played from hand and moves directly to the discard pile.
+static func _spell_card(sname: String, cost: int, skills: Array) -> CardData:
+	var card := CardData.new(sname, cost, 0, 0, skills)
+	card.card_type = "spell"
+	return card

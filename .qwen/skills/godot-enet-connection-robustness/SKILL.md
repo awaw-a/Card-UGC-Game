@@ -51,6 +51,63 @@ func _on_lobby_disconnected(id):
         lobby_connection_failed.emit()
 ```
 
+## Priority 1 UX hardening: visible state + safe exit before reconnects
+
+For early connection robustness, avoid jumping straight to full reconnect/state recovery. First make the lobby/waiting-room UX impossible to confuse with a hang:
+
+- Add explicit localized statuses for each phase: connecting to lobby, creating/joining room, connecting to game-room port, waiting for opponent, room connection lost, and actionable retry guidance.
+- Let waiting-room builders accept an optional initial message, e.g. `_show_waiting_room(initial_message: String = "")`, and set `WaitLabel` to `initial_message` before the normal `wait.select_start` fallback. Use this after successful lobby response but before the game-room peer has actually connected.
+- On `game_connection_failed` while a waiting room is visible, keep the user in a safe UI state: call `NetworkManager.close_connection()`, clear any art-transfer deadline, `set_process(false)`, disable `StartButton` / `StartNowButton` / card-edit buttons, and update `WaitLabel` to an exit-and-retry message. The existing exit button is enough for priority 1.
+- For direct P2P join failures, it is OK to remove the waiting UI and restore the IP-entry lobby panel with host/join buttons re-enabled, because there is no room-code state to preserve.
+- Do not implement automatic reconnect until the battle state can be reliably restored. For this project, priority 1 is: visible state, timeout failure, cleanup, and an obvious return/retry path.
+
+Example waiting-room failure helper:
+
+```gdscript
+func _mark_waiting_room_failed(message: String) -> void:
+    NetworkManager.close_connection()
+    _art_wait_deadline = 0.0
+    set_process(false)
+    if start_btn:
+        start_btn.disabled = true
+    if start_now_btn:
+        start_now_btn.disabled = true
+    if create_card_btn:
+        create_card_btn.disabled = true
+    if waiting_ui:
+        var wait_label = waiting_ui.get_node_or_null("WaitLabel")
+        if wait_label:
+            wait_label.text = message
+```
+
+When editing localization by script or exact replacements, re-read the edited blocks and grep for accidental tool/analysis artifacts (for example `Again invalid`, `Wait JSON`, `tool call`, `«`) before running Godot. A malformed replacement can leave valid-looking but semantically corrupted string-table lines.
+
+## Priority 2 UX hardening: stop the battle on mid-game disconnect
+
+After lobby/waiting-room failures are clear, handle in-battle disconnects explicitly. Do **not** attempt automatic reconnect first unless there is already robust battle-state restoration; otherwise players can keep interacting with divergent states.
+
+Recommended pattern for this project:
+
+1. Add a dedicated network signal on the autoload, separate from pending-connection failures:
+```gdscript
+signal opponent_disconnected()
+
+func _on_peer_disconnected(id: int):
+    opponent_peer_id = 0
+    is_online = false
+    opponent_disconnected.emit()
+```
+2. In `Main.gd` / the active battle scene, connect the signal during online initialization, next to the RPC signal wiring:
+```gdscript
+NetworkManager.opponent_disconnected.connect(_on_opponent_disconnected)
+```
+3. The battle handler should freeze the match instead of declaring a normal win/loss: set `battle_finished = true`, stop AI/timers, cancel attack/targeting state, hide remote arrows, disable `end_turn_button`, and show a modal overlay.
+4. Reuse the existing battle-result overlay style (`PanelContainer`, dim `ColorRect`, `UITheme.apply_panel`, `UITheme.apply_button`) but use neutral copy such as "Connection Lost" / "Battle stopped" rather than `p1_wins` or `p2_wins`.
+5. Provide explicit exits: a primary "Back to Multiplayer" button that calls `NetworkManager.close_connection()` then changes to `res://MultiplayerMenu.tscn`, and a secondary "Back to Title" button reusing the existing result-page menu handler.
+6. Add localized strings in both Chinese and English: title, body, and `result.back_multiplayer`.
+
+Keep this as priority 2 scope. Automatic reconnect is priority 3 and should wait until both peers can request/replay an authoritative battle snapshot safely after reconnection.
+
 ## RPC routes by NODE PATH — handler must live on the same node on both ends
 
 This is the highest-impact, least-obvious failure mode. Godot routes an RPC to the node at the **same scene-tree path** on the receiver as the caller. When the client calls `rpc_id(1, "lobby_request", ...)` from the `NetworkManager` autoload (`/root/NetworkManager`), the packet is delivered to the server's `/root/NetworkManager.lobby_request` — NOT to a different node like `/root/Server` where the real handler lives.
@@ -99,6 +156,49 @@ for arg in OS.get_cmdline_user_args():
         game_port_start = int(arg.split("=")[1])
 # launch: godot --headless server.tscn -- --port-start=5001 --port-end=5020
 ```
+
+## Surface failures in the waiting room, not only in the lobby form
+
+When the lobby assigns a game-room port, this project immediately switches from the lobby form to a waiting-room UI. If `connect_to_game_room(...)` later times out, updating only the hidden lobby `status_label` leaves the user stuck in a dead waiting room.
+
+Pattern used successfully:
+
+- Let the game-room failure signal update the visible `WaitLabel` when `waiting_ui` exists.
+- Call `NetworkManager.close_connection()`, clear art-transfer deadlines, and `set_process(false)` so stale transfer timers do not later enable "Enter Game".
+- Disable `StartButton`, `StartNowButton`, and card-edit actions after the connection is known dead.
+- Add a visible `RetryButton` in the waiting room. Its handler closes the connection, frees `waiting_ui`, shows the lobby panel/back button again, restores create/join/check buttons, and leaves the existing server IP/room code in place for quick correction.
+- Keep the retry lightweight: return to the multiplayer setup screen rather than trying to reuse a possibly stale room port.
+
+Useful localized strings in this project: `lobby.waiting_room_connecting`, `lobby.lost_game_room`, `lobby.retry_ready`, `wait.retry`.
+
+## Priority 3: conservative battle reconnect, not state replay
+
+For this game's current authority/state model, full automatic recovery is unsafe unless missed actions can be replayed or an authoritative snapshot can be requested after reconnect. A conservative, reusable compromise is: pause the battle under a blocking overlay, reconnect only to the same relay room port, and resume only after both peers are connected again. Do not let either player keep acting while disconnected.
+
+Implementation pattern:
+
+- Keep `opponent_disconnected` on the network autoload and emit it from `_on_peer_disconnected(id)` after clearing `opponent_peer_id` and `is_online`.
+- Store the last relay room context when `connect_to_game_room(address, port, assigned_player)` is called: `last_game_address`, `last_game_port`, and `last_game_player_number`.
+- Add `can_reconnect_to_last_game_room()` and `reconnect_to_last_game_room()` on `NetworkManager`. The reconnect helper should return `ERR_UNAVAILABLE` if there is no saved relay room context; otherwise call `connect_to_game_room(last_game_address, last_game_port, last_game_player_number)`.
+- In `Main.gd`, treat disconnect as a pause/lock state: set `battle_finished = true`, cancel targeting/attacks, hide remote arrows, disable `end_turn_button`, and show a modal `BattleResultLayer` with neutral connection text. This reuses the existing guard that blocks local input while the overlay is visible.
+- Add a `Reconnect` button to the disconnect overlay only when `NetworkManager.can_reconnect_to_last_game_room()` is true. On click, call `NetworkManager.reconnect_to_last_game_room()`, disable buttons, and change the body text to a "reconnecting" message.
+- Connect `NetworkManager.connected` in the battle scene to an `_on_opponent_reconnected()` handler. When the relay room reports both clients present again, remove the disconnect overlay, set `battle_finished = false`, refresh `my_player = NetworkManager.player_number`, and call `update_entire_screen()`.
+- Connect `NetworkManager.game_connection_failed` to a reconnect-failed handler while the overlay exists; re-enable the reconnect/back buttons and show a failure message.
+- Keep exits available: return to multiplayer (`NetworkManager.close_connection()` then `change_scene_to_file("res://MultiplayerMenu.tscn")`) and return to title.
+
+Important limitation: this does not replay or sync actions missed during the outage. The overlay must lock the battle immediately on disconnect so the local player cannot create divergent state while waiting to reconnect. Prefer this only for relay-room reconnects; direct P2P host/client recovery may need separate host-liveness handling.
+
+Useful localized strings: `result.reconnect`, `result.reconnecting`, `result.reconnect_failed`, `result.connection_lost_title`, `result.connection_lost_body`.
+
+## Verify with the project's real Godot console path
+
+In this project Godot is not on PATH. The working console executable is:
+
+```cmd
+"D:\XunLeiXiaZai\Godot_v4.6.3-stable_win64.exe\Godot_v4.6.3-stable_win64_console.exe" --headless --editor --quit
+```
+
+Run it from the project root and scan the full output for `SCRIPT ERROR`, `Parse Error`, or `Compile Error`; exit code 0 alone is not enough. Also run `git diff --check` to catch whitespace issues. CRLF/LF warnings are expected on some files and are not script errors.
 
 ## Verifying scripts that reference autoloads (important gotcha)
 

@@ -57,6 +57,25 @@ Count cards with a helper that skips null slots. Guard every field for null.
 
 `_describe_value` returns: variable → `"(name+offset)"` using `Locale.term("value_var", id)` (sign-aware: `+`, `-`, or bare); range → `"min-max"` (or just the number if equal); else `str(value)`. Then change `_format_effect_sentence` to use this STRING in place of the int — switch its `%d` value placeholders to `%s` for every effect branch (damage/heal/draw/shield/the default), keeping the zh/en split intact.
 
+Also keep target-limit display in the same centralized `_format_effect_sentence(...)` so card tooltip, card editor summary, and skill editor preview all agree. This project stores "maximum targets" as `random_count` on each effect (0 = all/no limit). If `int(eff.get("random_count", 0)) > 0`, append localized text after the main sentence and before probability text:
+
+```gdscript
+var rcount: int = int(eff.get("random_count", 0))
+if rcount > 0:
+	sentence += "，%s" % Locale.t("skill.max_targets", [rcount]) if is_zh else ", %s" % Locale.t("skill.max_targets", [rcount])
+if probability < 100:
+	sentence += " %s" % Locale.t("skill.chance", [probability])
+```
+
+Add locale keys:
+
+```gdscript
+"skill.max_targets": "最多影响 %d 个目标"
+"skill.max_targets": "up to %d target(s)"
+```
+
+Do not implement this separately in `CardEditor.gd` or `SkillEditor.gd`; those should call `SkillEngine._format_effect_sentence(eff)` / `SkillEngine.format_skill_tooltip(skill)` so descriptions remain complete everywhere.
+
 ## Editor UI (SkillEditor.gd popup)
 
 The effect popup builds controls in code. Add after the existing Effect+Value row:

@@ -21,8 +21,31 @@ var has_acted: bool = false
 var has_attacked: bool = false
 var summoned_this_turn: bool = false
 var skills_used: Array = []
+var skills_used_count: Dictionary = {}  # skill_index -> count (for 限定技 max_uses tracking)
 var charmed_slot: int = -1
 var original_cost: int = -1
+
+# When true, this card's basic attack bypasses silence (天赋特性)
+var attack_ignores_silence: bool = false
+
+# Field-only permanent ATK bonus (from gain_attack effects). This bonus only
+# applies while the card is on the battlefield; it is cleared on reset_to_base().
+var field_atk_bonus: int = 0
+
+# Immunity to lethal damage (1-time effect, consumed when triggered)
+var immune_lethal: bool = false
+
+# Zero-cost until deployed flag (from make_zero_cost effect)
+var zero_cost_until_deploy: bool = false
+
+# Card type: "minion" (default, occupies a battlefield slot), "spell"
+# (casts directly from hand to discard pile), or "parasite" (attaches to a
+# unit and absorbs normal attack / targeted skill damage for it).
+var card_type: String = "minion"
+
+# Parasite cards attached to this unit. They take directed attack/skill damage
+# before this unit loses HP.
+var parasite_cards: Array = []
 
 # Temporary HP (shield replacement, expires when its owner is about to act again)
 var temp_hp: int = 0
@@ -52,6 +75,14 @@ func _init(_name: String, _cost: int, _hp: int, _atk: int, _skills: Array = []):
 
 func is_alive() -> bool:
 	return hp > 0
+
+
+func is_spell() -> bool:
+	return card_type == "spell"
+
+
+func is_parasite() -> bool:
+	return card_type == "parasite"
 
 
 func is_silenced() -> bool:
@@ -93,6 +124,10 @@ func take_damage(amount: int) -> int:
 		print("  [DmgCut] %s reduces %d -> %d (%d%%)" % [card_name, amount, reduced, reduction_pct])
 		amount = reduced
 
+	return take_damage_without_reduction(amount)
+
+
+func take_damage_without_reduction(amount: int) -> int:
 	if amount <= 0:
 		return 0
 
@@ -107,6 +142,17 @@ func take_damage(amount: int) -> int:
 
 	if remaining > 0:
 		hp = max(0, hp - remaining)
+
+	# Check immune_lethal: if damage was fatal and card has immunity, survive at 1 HP
+	if hp <= 0 and immune_lethal:
+		hp = 1
+		immune_lethal = false
+		print("  [Immune] %s survived lethal damage with 1 HP!" % card_name)
+		# Check immunity from buff too
+		for eff in status_effects:
+			if eff.get("buff_id", "") == SkillEngine.BUFF_IMMUNE_LETHAL and eff.get("value", 0) > 0:
+				eff["value"] = 0  # consume the buff
+				break
 
 	return hp_before - hp
 
@@ -123,10 +169,13 @@ func heal(amount: int) -> int:
 # ============================================
 
 func effective_atk() -> int:
-	var bonus: int = 0
+	var bonus: int = field_atk_bonus
 	for eff in status_effects:
 		if eff.get("buff_id", "") == SkillEngine.BUFF_ATK_BOOST:
 			bonus += eff.get("value", 0)
+	for parasite in parasite_cards:
+		if parasite is CardData:
+			bonus += parasite.atk
 	return atk + bonus
 
 
@@ -224,7 +273,7 @@ func tick_buffs(owner_player: int) -> void:
 				print("  [Regen] %s heals %d (HP: %d)" % [card_name, regen_val, hp])
 
 		eff["duration"] = eff.get("duration", 0) - 1
-		if eff["duration"] <= 0 or eff.get("value", 0) <= 0:
+		if eff["duration"] <= 0:
 			to_remove.append(i)
 
 	for j in range(to_remove.size() - 1, -1, -1):
@@ -248,9 +297,14 @@ func reset_to_base() -> void:
 	has_attacked = false
 	summoned_this_turn = false
 	skills_used.clear()
+	skills_used_count.clear()
 	status_effects.clear()
+	parasite_cards.clear()
 	original_cost = -1
 	charmed_slot = -1
+	field_atk_bonus = 0
+	immune_lethal = false
+	zero_cost_until_deploy = false
 
 
 # ============================================
@@ -270,9 +324,16 @@ func duplicate_card() -> CardData:
 	copy.has_attacked = has_attacked
 	copy.summoned_this_turn = summoned_this_turn
 	copy.gender = gender
+	copy.card_type = card_type
+	copy.parasite_cards = parasite_cards.duplicate(true)
 	copy.charmed_slot = charmed_slot
 	copy.original_cost = original_cost
 	copy.skills_used = skills_used.duplicate()
+	copy.skills_used_count = skills_used_count.duplicate()
+	copy.attack_ignores_silence = attack_ignores_silence
+	copy.field_atk_bonus = field_atk_bonus
+	copy.immune_lethal = immune_lethal
+	copy.zero_cost_until_deploy = zero_cost_until_deploy
 	copy.art_path = art_path
 	copy.status_effects = status_effects.duplicate(true)
 	return copy

@@ -18,6 +18,9 @@ const EFFECT_DISPEL := "dispel"
 const EFFECT_GAIN_MANA := "gain_mana"
 const EFFECT_GAIN_ATTACK := "gain_attack"
 const EFFECT_GAIN_MAX_HP := "gain_max_hp"
+const EFFECT_VIEW_DISCARD := "view_discard_select"
+const EFFECT_VIEW_DECK := "view_deck_select"
+const EFFECT_ZERO_COST := "make_zero_cost"
 
 const BUFF_SILENCE := "silence"
 const BUFF_MISFORTUNE := "misfortune"
@@ -27,6 +30,7 @@ const BUFF_MANA_REFUND := "mana_refund"
 const BUFF_THORNS := "thorns"
 const BUFF_DAMAGE_REDUCTION := "damage_reduction"
 const BUFF_TAUNT := "taunt"
+const BUFF_IMMUNE_LETHAL := "immune_lethal"
 
 # ============================================
 # Skill tooltip and editor text formatting
@@ -50,6 +54,8 @@ static func format_buff_value(buff_id: String, value_text: String, is_zh: bool =
 			return "沉默" if is_zh else "silence"
 		BUFF_MISFORTUNE:
 			return "触发概率 -%s%%" % value_text if is_zh else "-%s%% trigger chance" % value_text
+		BUFF_IMMUNE_LETHAL:
+			return "免疫致命伤害" if is_zh else "immune to lethal damage"
 	return value_text
 
 
@@ -87,6 +93,29 @@ static func format_effect_sentence(eff: Dictionary) -> String:
 			sentence = "使%s攻击永久 +%s" % [target, vstr] if is_zh else "Give %s +%s permanent attack" % [target, vstr]
 		EFFECT_GAIN_MAX_HP:
 			sentence = "使%s生命上限永久 +%s，并恢复等量生命" % [target, vstr] if is_zh else "Give %s +%s max HP and restore that much HP" % [target, vstr]
+		EFFECT_VIEW_DISCARD:
+			var _vd_draw: int = int(normalized.get("random_count", 0))
+			if _vd_draw > 0:
+				sentence = "从弃牌堆抽取 %d 张，选择 %s 张加入手牌" % [_vd_draw, vstr] if is_zh else "Draw %d from discard, keep %s" % [_vd_draw, vstr]
+			else:
+				sentence = "从弃牌堆中选择 %s 张牌加入手牌" % vstr if is_zh else "Choose %s card(s) from the discard pile"
+		EFFECT_VIEW_DECK:
+			var _vdk_draw: int = int(normalized.get("random_count", 0))
+			if _vdk_draw > 0:
+				sentence = "从牌库抽取 %d 张，选择 %s 张加入手牌" % [_vdk_draw, vstr] if is_zh else "Draw %d from deck, keep %s" % [_vdk_draw, vstr]
+			else:
+				sentence = "从牌库中选择 %s 张牌加入手牌" % vstr if is_zh else "Choose %s card(s) from the deck"
+		EFFECT_ZERO_COST:
+			var _zc_target: String = normalized.get("target", "self")
+			var _zc_rcount: int = int(normalized.get("random_count", 0))
+			if _zc_target == "all":
+				sentence = "使所有手牌费用降为0，部署后恢复" if is_zh else "Set all hand cards' cost to 0 until deployed"
+			elif _zc_target in ["target_sides", "self_sides"]:
+				sentence = "使选中的手牌及其相邻卡牌费用降为0，部署后恢复" if is_zh else "Set chosen hand card and its neighbors' cost to 0 until deployed"
+			elif _zc_target == "target_single" and _zc_rcount > 0:
+				sentence = "随机使 %s 张手牌费用降为0，部署后恢复" % vstr if is_zh else "Set %s random hand card(s) cost to 0 until deployed"
+			else:
+				sentence = "使手牌中 %s 张牌费用降为0，部署后恢复" % vstr if is_zh else "Set cost of %s card(s) to 0 until deployed"
 		EFFECT_ADD_BUFF:
 			var buff_name: String = Locale.term("buff", normalized.get("buff_id", ""))
 			var buff_value := format_buff_value(normalized.get("buff_id", ""), vstr, is_zh)
@@ -132,6 +161,9 @@ static func format_skill_tooltip(skill: Dictionary) -> String:
 	var sname: String = skill.get("skill_name", Locale.t("editor.unnamed"))
 	var trig: String = Locale.term("trigger", skill.get("trigger", ""))
 	var result: String = "[%s] %s\n" % [sname, trig]
+	var skill_probability: int = int(skill.get("probability", 100))
+	if skill_probability < 100:
+		result += "  %s\n" % Locale.t("skill.chance", [skill_probability])
 
 	var effects: Array = skill.get("effects", [])
 	if effects.is_empty() and not skill.get("effect", "").is_empty():

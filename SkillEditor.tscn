@@ -12,17 +12,17 @@ grow_vertical = 2
 script = ExtResource("1_skill")
 
 [node name="Panel" type="Panel" parent="." unique_id=2000002]
-custom_minimum_size = Vector2(450, 600)
+custom_minimum_size = Vector2(520, 640)
 layout_mode = 1
 anchors_preset = 8
 anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -225.0
-offset_top = -300.0
-offset_right = 225.0
-offset_bottom = 300.0
+offset_left = -260.0
+offset_top = -320.0
+offset_right = 260.0
+offset_bottom = 320.0
 grow_horizontal = 2
 grow_vertical = 2
 
@@ -55,6 +55,11 @@ theme_override_font_sizes/font_size = 20
 text = "Skill Editor"
 horizontal_alignment = 1
 
+[node name="HelpLabel" type="Label" parent="Panel/MarginContainer/ScrollContainer/VBoxContainer"]
+layout_mode = 2
+text = "1. Name it  2. Pick when it triggers  3. Add one or more effects"
+autowrap_mode = 3
+
 [node name="Separator0" type="HSeparator" parent="Panel/MarginContainer/ScrollContainer/VBoxContainer" unique_id=2000028]
 layout_mode = 2
 
@@ -70,8 +75,18 @@ placeholder_text = "e.g. Railgun"
 layout_mode = 2
 text = "Trigger:"
 
+[node name="TriggerHintLabel" type="Label" parent="Panel/MarginContainer/ScrollContainer/VBoxContainer"]
+layout_mode = 2
+text = "When does this skill happen?"
+autowrap_mode = 3
+
 [node name="TriggerSelect" type="OptionButton" parent="Panel/MarginContainer/ScrollContainer/VBoxContainer" unique_id=2000008]
 layout_mode = 2
+
+[node name="TriggerPreviewLabel" type="Label" parent="Panel/MarginContainer/ScrollContainer/VBoxContainer"]
+layout_mode = 2
+text = "-"
+autowrap_mode = 3
 
 [node name="SeparatorMid" type="HSeparator" parent="Panel/MarginContainer/ScrollContainer/VBoxContainer" unique_id=2000015]
 layout_mode = 2
@@ -79,6 +94,11 @@ layout_mode = 2
 [node name="EffectsLabel" type="Label" parent="Panel/MarginContainer/ScrollContainer/VBoxContainer" unique_id=2001000]
 layout_mode = 2
 text = "Effects:"
+
+[node name="EffectsHintLabel" type="Label" parent="Panel/MarginContainer/ScrollContainer/VBoxContainer"]
+layout_mode = 2
+text = "Each effect is one action, such as damage, heal, or add a status."
+autowrap_mode = 3
 
 [node name="EffectsList" type="VBoxContainer" parent="Panel/MarginContainer/ScrollContainer/VBoxContainer" unique_id=2001001]
 layout_mode = 2
@@ -91,9 +111,14 @@ text = "+ Add Effect"
 [node name="SeparatorBottom" type="HSeparator" parent="Panel/MarginContainer/ScrollContainer/VBoxContainer" unique_id=2000021]
 layout_mode = 2
 
+[node name="PreviewLabel" type="Label" parent="Panel/MarginContainer/ScrollContainer/VBoxContainer"]
+layout_mode = 2
+text = "Skill Preview:"
+
 [node name="SkillSummary" type="Label" parent="Panel/MarginContainer/ScrollContainer/VBoxContainer" unique_id=2000022]
 layout_mode = 2
-horizontal_alignment = 1
+horizontal_alignment = 0
+autowrap_mode = 3
 
 [node name="ButtonRow" type="HBoxContainer" parent="Panel/MarginContainer/ScrollContainer/VBoxContainer" unique_id=2000023]
 layout_mode = 2

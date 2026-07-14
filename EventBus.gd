@@ -18,6 +18,12 @@ signal attack_declared(attacker: CardData, victim: CardData, atk_slot: int, def_
 @warning_ignore("unused_signal")
 signal hp_changed(target: CardData, delta: int, new_hp: int)
 @warning_ignore("unused_signal")
+signal damage_resolved(source: CardData, target: CardData, declared: int, actual: int, reduction_pct: int, temp_hp_before: int, reason: String)
+@warning_ignore("unused_signal")
+signal parasite_damage_resolved(host: CardData, parasite: CardData, declared: int, actual: int, destroyed: bool)
+@warning_ignore("unused_signal")
+signal skill_roll_failed(source: CardData, skill_name: String, misfortune: int, final_probability: int)
+@warning_ignore("unused_signal")
 signal skill_triggered(skill_name: String, source: CardData)
 
 # Turn events
@@ -35,6 +41,16 @@ signal enemy_turn_finished()
 signal game_over(result: String)
 @warning_ignore("unused_signal")
 signal game_started()
+
+# Skill interaction events
+@warning_ignore("unused_signal")
+signal view_discard_select(count: int, draw_count: int, current_player: int, hand: Array)
+@warning_ignore("unused_signal")
+signal view_deck_select(count: int, draw_count: int, current_player: int, hand: Array)
+@warning_ignore("unused_signal")
+signal make_zero_cost_select(count: int, current_player: int, hand: Array, target: String, random_count: int)
+@warning_ignore("unused_signal")
+signal shuffle_discard_into_deck()
 
 # Network RPC relay signals
 @warning_ignore("unused_signal")

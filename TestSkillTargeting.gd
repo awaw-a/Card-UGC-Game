@@ -10,10 +10,13 @@ var failures: Array = []
 func _ready() -> void:
 	_test_target_normalization_helpers()
 	_test_skill_text_formatter_helpers()
+	_test_skill_tooltip_shows_skill_probability()
 	_test_thorns_added_on_damaged_is_delayed()
 	_test_old_all_enemy_mapping()
 	_test_target_side_filter()
 	_test_activate_target_single_requires_manual_target()
+	_test_target_single_all_side_uses_selected_player()
+	_test_target_single_ally_side_uses_ally_field()
 	_test_on_attack_target_matrix()
 	_test_on_damaged_target_matrix()
 	_test_death_self_sides_and_filter_targets()
@@ -49,6 +52,17 @@ func _test_skill_text_formatter_helpers() -> void:
 	var sentence := _TextFormatter.format_effect_sentence({"target": SkillEngine.TARGET_ALL_ENEMIES, "effect": SkillEngine.EFFECT_DAMAGE, "value_min": 1, "value_max": 3, "random_count": 2})
 	if not sentence.contains("敌方") or not sentence.contains("1-3"):
 		_fail("skill text formatter did not describe normalized enemy random damage")
+	Locale.language = old_lang
+
+
+func _test_skill_tooltip_shows_skill_probability() -> void:
+	var old_lang := Locale.language
+	Locale.language = "zh"
+	var tooltip := _TextFormatter.format_skill_tooltip({"skill_name": "自我修复", "trigger": SkillEngine.TRIGGER_ON_DAMAGED, "probability": 33, "effects": [
+		{"target": SkillEngine.TARGET_SELF, "effect": SkillEngine.EFFECT_HEAL, "value": 3}
+	]})
+	if not tooltip.contains("33") or not tooltip.contains("恢复 3 点生命"):
+		_fail("skill tooltip did not show skill-level trigger probability")
 	Locale.language = old_lang
 
 
@@ -144,6 +158,46 @@ func _test_activate_target_single_requires_manual_target() -> void:
 	SkillEngine.trigger_single_skill(caster, 0, game.make_skill_context(0, 0))
 	if enemy.hp != 3:
 		_fail("manual target_single did not hit the selected target")
+
+
+func _test_target_single_all_side_uses_selected_player() -> void:
+	var game = _new_game()
+	var caster := _card("Caster")
+	var ally := _card("Ally")
+	ally.hp = 2
+	var enemy := _card("Enemy")
+	enemy.hp = 2
+	game.player_field.slots[0] = caster
+	game.player_field.slots[1] = ally
+	game.player2_field.slots[1] = enemy
+	caster.skills = [{"skill_name": "Open Heal", "trigger": SkillEngine.TRIGGER_ON_ACTIVATE, "effects": [
+		{"target": SkillEngine.TARGET_SINGLE, "target_side": SkillEngine.TARGET_SIDE_ALL, "effect": SkillEngine.EFFECT_HEAL, "value": 3}
+	]}]
+	SkillEngine.trigger_single_skill(caster, 0, game.make_skill_context(0, 1, 1))
+	if ally.hp != 2:
+		_fail("target_single all-side should not resolve selected allied slot")
+	if enemy.hp != 5:
+		_fail("target_single all-side should fall back to enemy field for directed targets")
+
+
+func _test_target_single_ally_side_uses_ally_field() -> void:
+	var game = _new_game()
+	var caster := _card("Caster")
+	var ally := _card("Ally")
+	ally.hp = 2
+	var enemy := _card("Enemy")
+	enemy.hp = 2
+	game.player_field.slots[0] = caster
+	game.player_field.slots[1] = ally
+	game.player2_field.slots[1] = enemy
+	caster.skills = [{"skill_name": "Ally Heal", "trigger": SkillEngine.TRIGGER_ON_ACTIVATE, "effects": [
+		{"target": SkillEngine.TARGET_SINGLE, "target_side": SkillEngine.TARGET_SIDE_ALLY, "effect": SkillEngine.EFFECT_HEAL, "value": 3}
+	]}]
+	SkillEngine.trigger_single_skill(caster, 0, game.make_skill_context(0, 1, 1))
+	if ally.hp != 5:
+		_fail("target_single ally-side did not resolve selected allied slot")
+	if enemy.hp != 2:
+		_fail("target_single ally-side resolved selected allied slot on enemy field")
 
 
 func _test_on_attack_target_matrix() -> void:

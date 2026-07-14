@@ -70,6 +70,54 @@ rmdir /s /q build_check
 
 Use the exact preset name from `export_presets.cfg`. Report whether the export succeeded and whether the temporary directory was removed.
 
+## Update the GitHub Pages landing page download link
+
+When the user asks to update the public download button, edit `docs/index.html` because this project serves GitHub Pages from the `docs/` folder on `main`.
+
+Procedure:
+
+1. Search/read `docs/index.html` around the `#download` section. The primary download card is an `<a class="dl-card" ...>` link.
+2. Prefer the exact release asset URL the user gives over guessed tag names. GitHub release tags may not match the display version; for example the visible version may be `v0.07` while the actual tag is `v0.07-on-publish`.
+3. If the user gives only the release page URL, derive the ZIP asset URL by changing `/releases/tag/<tag>` to `/releases/download/<tag>/CardGame-Windows.zip`.
+4. Update both links if applicable:
+   - primary ZIP asset link: `https://github.com/Chai-maomao/Card-UGC-Game/releases/download/<tag>/CardGame-Windows.zip`
+   - release page link: `https://github.com/Chai-maomao/Card-UGC-Game/releases/tag/<tag>`
+5. Also update nearby visible text so the page does not contradict the link, e.g. `当前提供 Windows v0.07 版本`, the ZIP note `v0.07 · 压缩包 · ZIP · x86_64`, and `查看 v0.07 发布页面`.
+6. Run a targeted search such as `rg "v0\\.06|v0\\.07|releases/download" docs/index.html` to confirm the old visible version/link is gone and the new asset link is present.
+7. Run `git diff -- docs/index.html` to verify only the landing-page change is staged.
+8. Commit only `docs/index.html`, then push `main` so GitHub Pages updates:
+
+```bat
+git add docs/index.html
+git commit -m "Fix landing page v0.07 download link"
+git push origin main
+```
+
+Important cautions:
+
+- Do not read or use stored personal access tokens from memory. Let Git use existing credential-manager authentication.
+- Check `git status` first. This repo often has many unrelated uncommitted Godot changes; stage only `docs/index.html` for a link-only update.
+- If local `main` is already ahead of `origin/main`, pushing will publish those prior commits too. Tell the user before pushing if this matters.
+- If `git fetch origin` shows local `main` has diverged from `origin/main` and the user wants only the web page published, use a temporary worktree based on `origin/main` instead of pushing the dirty/diverged local branch:
+
+```bat
+git fetch origin
+git worktree add .qwen\worktrees\pages-v007 origin/main
+cd .qwen\worktrees\pages-v007
+rem edit only docs\index.html here
+git status --short
+git diff -- docs/index.html
+git add docs/index.html
+git commit -m "Update download link to v0.07"
+git push origin HEAD:main
+cd ..\..\..
+git worktree remove .qwen\worktrees\pages-v007
+```
+
+- After a worktree push, verify the remote page file from the main checkout without merging local code: `git fetch origin` then `git show origin/main:docs/index.html | findstr /C:"v0.07" /C:"releases/download"`.
+- GitHub Pages may take tens of seconds to a few minutes to reflect the pushed change.
+- If `read_file` shows a newer local version than `git diff`'s removed lines, treat it as an already-dirty file and avoid overwriting unrelated edits; verify the final file content rather than assuming the diff base is current.
+
 ## Report as blockers vs polish
 
 Keep the final release report short and actionable:

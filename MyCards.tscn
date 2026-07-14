@@ -32,20 +32,8 @@ layout_mode = 2
 
 [node name="TitleLabel" type="Label" parent="Panel/VBoxContainer/TopBar" unique_id=1634311188]
 layout_mode = 2
-text = "我的卡牌库"
+text = "卡组管理"
 theme_override_font_sizes/font_size = 24
-
-[node name="Spacer" type="Control" parent="Panel/VBoxContainer/TopBar" unique_id=1184684127]
-layout_mode = 2
-size_flags_horizontal = 3
-
-[node name="CreateNewButton" type="Button" parent="Panel/VBoxContainer/TopBar" unique_id=469598208]
-layout_mode = 2
-text = "+ 新建卡牌"
-
-[node name="BackButton" type="Button" parent="Panel/VBoxContainer/TopBar" unique_id=123456789]
-layout_mode = 2
-text = "← 返回"
 
 [node name="ScrollContainer" type="ScrollContainer" parent="Panel/VBoxContainer" unique_id=561588408]
 layout_mode = 2
@@ -53,4 +41,4 @@ size_flags_vertical = 3
 
 [node name="CardGrid" type="GridContainer" parent="Panel/VBoxContainer/ScrollContainer" unique_id=467839116]
 layout_mode = 2
-columns = 4
+columns = 2

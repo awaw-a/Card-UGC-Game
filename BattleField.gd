@@ -15,6 +15,7 @@ var max_player_hp: int = 30
 # 圣水系统
 var current_mana: int = 4
 var max_mana: int = 10
+var temp_mana: int = 0  # 临时圣水（回合结束消失，消耗时优先扣除）
 
 # 5个前台格子 [0..4]，存储 CardData 或 null
 var slots: Array = [null, null, null, null, null]
@@ -41,11 +42,29 @@ func add_mana(amount: int) -> void:
 	current_mana = min(max_mana, current_mana + amount)
 
 
-# 消耗圣水，成功返回 true
+# 获得临时圣水（回合结束消失）
+func add_temp_mana(amount: int) -> void:
+	temp_mana += amount
+
+
+# 总可用圣水（永久 + 临时）
+func get_total_mana() -> int:
+	return current_mana + temp_mana
+
+
+# 清除临时圣水
+func clear_temp_mana() -> void:
+	temp_mana = 0
+
+
+# 消耗圣水，优先扣除临时圣水，成功返回 true
 func spend_mana(amount: int) -> bool:
-	if current_mana < amount:
+	var total: int = current_mana + temp_mana
+	if total < amount:
 		return false
-	current_mana -= amount
+	var from_temp: int = min(temp_mana, amount)
+	temp_mana -= from_temp
+	current_mana -= (amount - from_temp)
 	return true
 
 
@@ -61,11 +80,11 @@ func summon_card(card: CardData, slot_idx: int) -> bool:
 		print("[%s] 错误：格子 %d 已有卡牌" % [owner_name, slot_idx])
 		return false
 
-	if current_mana < card.cost:
-		print("[%s] 错误：圣水不足（需 %d，当前 %d）" % [owner_name, card.cost, current_mana])
+	if get_total_mana() < card.cost:
+		print("[%s] 错误：圣水不足（需 %d，当前 %d）" % [owner_name, card.cost, get_total_mana()])
 		return false
 
-	current_mana -= card.cost
+	spend_mana(card.cost)
 	slots[slot_idx] = card
 	card.summoned_this_turn = true
 	print("[%s] 召唤 %s → 格子 %d | 剩余圣水: %d" % [owner_name, card.card_name, slot_idx, current_mana])

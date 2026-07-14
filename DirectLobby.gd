@@ -1,6 +1,7 @@
 extends Control
 
 const BASE_VIEWPORT_SIZE := Vector2(1152, 648)
+const UITheme = preload("res://UITheme.gd")
 
 @onready var status_label = $Panel/VBoxContainer/StatusLabel
 @onready var host_btn = $Panel/VBoxContainer/HostButton
@@ -20,7 +21,6 @@ func _apply_texts() -> void:
 	back_btn.text = Locale.t("common.back")
 
 var card_ui_scene = preload("res://CardUI.tscn")
-var selected_indices: Array = []
 var opponent_ready: bool = false
 var i_am_ready: bool = false
 var _opponent_arts_received: int = 0
@@ -38,6 +38,29 @@ var create_card_btn: Button
 var start_now_btn: Button
 
 
+func _apply_theme() -> void:
+	UITheme.apply_app_background(lobby_panel)
+	UITheme.apply_panel(lobby_panel, "gold")
+	UITheme.apply_title(title_label, max(18, int(24 * _ui_scale())))
+	for label in [status_label, ip_label]:
+		UITheme.apply_label(label, label == status_label)
+	UITheme.apply_input(ip_input)
+	UITheme.apply_button(host_btn, "primary")
+	UITheme.apply_button(join_btn, "primary")
+	UITheme.apply_button(back_btn, "secondary")
+
+
+func _theme_waiting_button(button: BaseButton, variant: String = "secondary") -> void:
+	UITheme.apply_button(button, variant)
+
+
+func _theme_waiting_label(label: Label, title: bool = false) -> void:
+	if title:
+		UITheme.apply_title(label, max(14, int(18 * _ui_scale())))
+	else:
+		UITheme.apply_label(label, true)
+
+
 func _ui_scale() -> float:
 	var size := get_viewport_rect().size
 	if size.x <= 0 or size.y <= 0:
@@ -53,8 +76,9 @@ func _apply_responsive_layout() -> void:
 	for child in vbox.get_children():
 		if child is Label:
 			child.add_theme_font_size_override("font_size", max(10, int(14 * s)))
+			UITheme.apply_label(child, child.name == "StatusLabel")
 			if child.name == "TitleLabel":
-				child.add_theme_font_size_override("font_size", max(14, int(24 * s)))
+				UITheme.apply_title(child, max(14, int(24 * s)))
 			elif child.name == "StatusLabel":
 				# Long error messages must wrap instead of stretching the panel wide.
 				child.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -62,8 +86,10 @@ func _apply_responsive_layout() -> void:
 				child.size_flags_horizontal = Control.SIZE_FILL
 		elif child is Button:
 			child.add_theme_font_size_override("font_size", max(10, int(14 * s)))
+			UITheme.apply_button(child, "primary" if child == host_btn or child == join_btn else "secondary")
 		elif child is LineEdit:
 			child.custom_minimum_size = Vector2(200 * s, 0)
+			UITheme.apply_input(child)
 
 	# Size the panel to fit its contents (avoids buttons overflowing the dark panel).
 	_resize_panel_to_content.call_deferred(s)
@@ -93,6 +119,7 @@ func _scale_waiting_room(s: float) -> void:
 			child.offset_bottom = child.offset_top + 40.0 * s
 			child.custom_minimum_size = Vector2(120, 40) * s
 			child.add_theme_font_size_override("font_size", max(10, int(14 * s)))
+			_theme_waiting_button(child, "secondary")
 		elif child is Button and child.name == "CreateCardButton":
 			child.offset_left = 140.0 * s
 			child.offset_top = 10.0 * s
@@ -100,30 +127,35 @@ func _scale_waiting_room(s: float) -> void:
 			child.offset_bottom = child.offset_top + 40.0 * s
 			child.custom_minimum_size = Vector2(120, 40) * s
 			child.add_theme_font_size_override("font_size", max(10, int(14 * s)))
+			_theme_waiting_button(child, "secondary")
 		elif child is Label and child.name == "WaitLabel":
 			child.offset_bottom = 60.0 * s
 			child.custom_minimum_size = Vector2(0, 60.0 * s)
 			child.add_theme_font_size_override("font_size", max(12, int(18 * s)))
+			_theme_waiting_label(child, true)
 		elif child is ScrollContainer:
 			for grid_child in child.get_children():
 				if grid_child is GridContainer:
 					grid_child.add_theme_constant_override("h_separation", int(8 * s))
 					grid_child.add_theme_constant_override("v_separation", int(8 * s))
 					for card_box in grid_child.get_children():
-						if card_box is VBoxContainer:
-							card_box.custom_minimum_size = Vector2(160, 220) * s
-							for box_child in card_box.get_children():
-								if box_child.has_method("apply_ui_scale"):
-									box_child.apply_ui_scale(s)
-								elif box_child is CheckBox:
-									box_child.add_theme_font_size_override("font_size", max(10, int(14 * s)))
+						if card_box is PanelContainer:
+							card_box.custom_minimum_size = Vector2(132, 172) * s
+							UITheme.apply_panel(card_box, "soft")
+						for box_child in card_box.find_children("*", "Control", true, false):
+							if box_child.has_method("apply_ui_scale"):
+								box_child.apply_ui_scale(s)
+							elif box_child is CheckBox:
+								box_child.add_theme_font_size_override("font_size", max(10, int(14 * s)))
 		elif child is Button and child.name == "StartButton":
 			child.custom_minimum_size = Vector2(120, 50) * s
 			child.add_theme_font_size_override("font_size", max(10, int(14 * s)))
+			_theme_waiting_button(child, "primary")
 		elif child is Button and child.name == "StartNowButton":
 			child.offset_bottom = 56.0 * s
 			child.custom_minimum_size = Vector2(160, 56) * s
 			child.add_theme_font_size_override("font_size", max(12, int(18 * s)))
+			_theme_waiting_button(child, "primary")
 
 
 func _on_viewport_size_changed() -> void:
@@ -142,6 +174,7 @@ func _ready():
 	EventBus.rpc_card_art_ack_received.connect(_on_card_art_ack)
 	NetworkManager.game_started.connect(_on_battle_start)
 	_apply_texts()
+	_apply_theme()
 	_apply_responsive_layout()
 	get_viewport().size_changed.connect(_on_viewport_size_changed)
 	set_process(false)  # only enabled while waiting out the art-transfer timeout
@@ -178,7 +211,7 @@ func _on_join_pressed():
 		host_btn.disabled = false
 		join_btn.disabled = false
 	else:
-		_show_waiting_room()
+		_show_waiting_room(Locale.t("lobby.waiting_room_connecting"))
 
 
 func _on_opponent_joined():
@@ -195,6 +228,8 @@ func _on_opponent_joined():
 func _on_game_connection_failed():
 	# Only the joining client can time out here (the host just listens).
 	NetworkManager.close_connection()
+	_art_wait_deadline = 0.0
+	set_process(false)
 	if waiting_ui:
 		waiting_ui.queue_free()
 		waiting_ui = null
@@ -206,7 +241,7 @@ func _on_game_connection_failed():
 	_resize_panel_to_content.call_deferred(_ui_scale())
 
 
-func _show_waiting_room():
+func _show_waiting_room(initial_message: String = ""):
 	var s := _ui_scale()
 	lobby_panel.visible = false
 	back_btn.visible = false
@@ -229,6 +264,7 @@ func _show_waiting_room():
 	exit_btn.offset_bottom = exit_btn.offset_top + 40.0 * s
 	exit_btn.custom_minimum_size = Vector2(120, 40) * s
 	exit_btn.add_theme_font_size_override("font_size", max(10, int(14 * s)))
+	_theme_waiting_button(exit_btn, "secondary")
 	exit_btn.pressed.connect(func():
 		NetworkManager.close_connection()
 		get_tree().change_scene_to_file("res://MainMenu.tscn")
@@ -248,11 +284,12 @@ func _show_waiting_room():
 	create_card_btn.offset_bottom = create_card_btn.offset_top + 40.0 * s
 	create_card_btn.custom_minimum_size = Vector2(120, 40) * s
 	create_card_btn.add_theme_font_size_override("font_size", max(10, int(14 * s)))
+	_theme_waiting_button(create_card_btn, "secondary")
 	create_card_btn.pressed.connect(_on_create_card_pressed)
 	waiting_ui.add_child(create_card_btn)
 
 	var wait_label := Label.new()
-	wait_label.text = Locale.t("wait.select_start")
+	wait_label.text = initial_message if initial_message != "" else Locale.t("wait.select_start")
 	wait_label.name = "WaitLabel"
 	wait_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	wait_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -266,7 +303,7 @@ func _show_waiting_room():
 	wait_label.offset_bottom = 60.0 * s
 	wait_label.custom_minimum_size = Vector2(0, 60.0 * s)
 	wait_label.add_theme_font_size_override("font_size", max(12, int(18 * s)))
-	wait_label.add_theme_color_override("font_color", Color(0.9, 0.9, 0.9))
+	_theme_waiting_label(wait_label, true)
 	waiting_ui.add_child(wait_label)
 
 	var scroll := ScrollContainer.new()
@@ -282,30 +319,21 @@ func _show_waiting_room():
 	grid.add_theme_constant_override("v_separation", int(8 * s))
 	scroll.add_child(grid)
 
-	for i in range(PlayerData.card_library.size()):
-		var card_data: CardData = PlayerData.card_library[i]
-		var idx: int = i
+	for i in range(PlayerData.battle_deck.size()):
+		var card_data: CardData = PlayerData.battle_deck[i]
 
-		var card_box := VBoxContainer.new()
-		card_box.custom_minimum_size = Vector2(160, 220) * s
+		var card_box := PanelContainer.new()
+		card_box.custom_minimum_size = Vector2(132, 172) * s
+		UITheme.apply_panel(card_box, "soft")
 
+		var inner := CenterContainer.new()
+		card_box.add_child(inner)
 		var cui := card_ui_scene.instantiate()
 		grid.add_child(card_box)
-		card_box.add_child(cui)
+		inner.add_child(cui)
 		cui.set_card(card_data)
 		cui.set_actions_visible(false)
 		cui.apply_ui_scale(s)
-
-		var check := CheckBox.new()
-		check.text = Locale.t("wait.select")
-		check.add_theme_font_size_override("font_size", max(10, int(14 * s)))
-		check.pressed.connect(func():
-			if not selected_indices.has(idx):
-				selected_indices.append(idx)
-			else:
-				selected_indices.erase(idx)
-		)
-		card_box.add_child(check)
 
 	start_btn = Button.new()
 	start_btn.text = Locale.t("wait.start_game")
@@ -316,6 +344,7 @@ func _show_waiting_room():
 	start_btn.anchor_bottom = 0.97
 	start_btn.custom_minimum_size = Vector2(120, 50) * s
 	start_btn.add_theme_font_size_override("font_size", max(10, int(14 * s)))
+	_theme_waiting_button(start_btn, "primary")
 	start_btn.pressed.connect(_on_start_pressed)
 	waiting_ui.add_child(start_btn)
 
@@ -329,23 +358,17 @@ func _on_create_card_pressed():
 
 
 func _on_start_pressed():
-	if selected_indices.is_empty():
+	if PlayerData.battle_deck.is_empty():
 		return
 	i_am_ready = true
 	start_btn.disabled = true
 	var wait_label = waiting_ui.get_node_or_null("WaitLabel")
 	if wait_label: wait_label.text = Locale.t("wait.waiting_opponent")
 
-	PlayerData.battle_deck.clear()
-	for idx in selected_indices:
-		if idx >= 0 and idx < PlayerData.card_library.size():
-			PlayerData.battle_deck.append(PlayerData.card_library[idx].duplicate_card())
-
 	if NetworkManager.is_online:
 		var card_data_list: Array = []
-		for idx in selected_indices:
-			if idx >= 0 and idx < PlayerData.card_library.size():
-				card_data_list.append(PlayerData.serialize_card(PlayerData.card_library[idx]))
+		for card in PlayerData.battle_deck:
+			card_data_list.append(PlayerData.serialize_card(card))
 		NetworkManager.rpc_player_ready.rpc(card_data_list)
 		await get_tree().process_frame
 		_send_card_arts()
@@ -359,9 +382,8 @@ func _on_start_pressed():
 # One RPC per art so the receiver can show per-card progress.
 func _send_card_arts() -> void:
 	var arts: Array = []
-	var indices: Array = card_data_list_indices()
-	for i in range(indices.size()):
-		var card: CardData = PlayerData.card_library[indices[i]]
+	for i in range(PlayerData.battle_deck.size()):
+		var card: CardData = PlayerData.battle_deck[i]
 		var bytes := PlayerData.read_art_bytes(card.art_path)
 		if bytes.is_empty():
 			continue
@@ -379,9 +401,8 @@ func _send_card_arts() -> void:
 # The ordered list of library indices that map 1:1 to the ready card_data_list.
 func card_data_list_indices() -> Array:
 	var result: Array = []
-	for idx in selected_indices:
-		if idx >= 0 and idx < PlayerData.card_library.size():
-			result.append(idx)
+	for idx in range(PlayerData.battle_deck.size()):
+		result.append(idx)
 	return result
 
 
@@ -502,6 +523,7 @@ func _show_start_now_button() -> void:
 	start_now_btn.offset_bottom = 56.0 * s
 	start_now_btn.custom_minimum_size = Vector2(160, 56) * s
 	start_now_btn.add_theme_font_size_override("font_size", max(12, int(18 * s)))
+	_theme_waiting_button(start_now_btn, "primary")
 	start_now_btn.pressed.connect(_begin_start)
 	waiting_ui.add_child(start_now_btn)
 

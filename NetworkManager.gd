@@ -20,6 +20,8 @@ const CONNECT_TIMEOUT := 8.0  # seconds before a pending connection is treated a
 const RECONNECT_WINDOW := 60.0 * 60.0
 const RECONNECT_RETRY_DELAY := 5.0
 const SESSION_PATH := "user://active_room.cfg"
+const HEARTBEAT_INTERVAL := 2.0  # seconds between heartbeat sends
+const HEARTBEAT_TIMEOUT := 7.0  # seconds without receiving heartbeat before declaring disconnect
 
 var peer: ENetMultiplayerPeer
 var is_host: bool = false
@@ -27,6 +29,9 @@ var is_online: bool = false
 var opponent_peer_id: int = 0
 var player_number: int = 0
 var is_dedicated_server: bool = false
+var _last_heartbeat_sent: float = 0.0
+var _last_heartbeat_received: float = 0.0
+var _heartbeat_active: bool = false
 # Set from the lobby response in relay mode: whether the server permits card-art
 # transfer. Direct P2P ignores this (always allowed).
 var server_allows_card_art: bool = false
@@ -37,6 +42,10 @@ var room_player_number: int = 0
 var reconnect_token: String = ""
 var room_match_started: bool = false
 var just_reconnected: bool = false
+
+var last_game_address: String = ""
+var last_game_port: int = 0
+var last_game_player_number: int = 0
 
 # Lobby connection (for room-code server)
 var _lobby_peer: ENetMultiplayerPeer
@@ -95,6 +104,21 @@ func _process(_delta: float) -> void:
 			_finish_reconnect_failure("reconnect_timeout")
 		elif not _reconnect_attempt_running and _now() >= _reconnect_retry_at:
 			_attempt_match_reconnect()
+	# Application-level heartbeat: send periodically and detect timeout.
+	if _heartbeat_active and is_online and opponent_peer_id > 0:
+		var t: float = _now()
+		if t - _last_heartbeat_sent >= HEARTBEAT_INTERVAL:
+			_last_heartbeat_sent = t
+			_send_heartbeat()
+		if _last_heartbeat_received > 0.0 and t - _last_heartbeat_received > HEARTBEAT_TIMEOUT:
+			if is_dedicated_server:
+				# The relay owns stable player presence and sends an authenticated
+				# disconnect notification. Do not freeze a live room on transient loss.
+				_last_heartbeat_received = t
+				print("[Heartbeat] Opponent heartbeat delayed; waiting for room server state")
+			else:
+				print("[Heartbeat] No heartbeat from opponent for %.1fs - declaring disconnect" % (t - _last_heartbeat_received))
+				_on_opponent_vanished()
 
 
 # ============================================
@@ -311,8 +335,11 @@ func notify_room_ready() -> void:
 	# Broadcast by the room subprocess (peer 1) once both players are connected.
 	# Drives the same "opponent connected" path used by direct P2P.
 	is_online = true
-	if opponent_peer_id == 0:
-		opponent_peer_id = -1  # marker: opponent present (relay hides real id)
+	if opponent_peer_id <= 0:
+		opponent_peer_id = 1  # relay mode: server (peer 1) is the relay target
+	_heartbeat_active = true
+	_last_heartbeat_sent = _now()
+	_last_heartbeat_received = _now() + HEARTBEAT_TIMEOUT * 0.5
 	connected.emit()
 
 
@@ -360,6 +387,8 @@ func notify_player_disconnected(disconnected_player: int) -> void:
 	if disconnected_player == player_number:
 		return
 	opponent_peer_id = 0
+	_heartbeat_active = false
+	_last_heartbeat_received = 0.0
 	is_online = true
 	opponent_disconnected.emit(disconnected_player)
 
@@ -441,6 +470,9 @@ func connect_to_game_room(address: String, port: int, assigned_player: int, code
 	if not is_valid_address(address):
 		return ERR_INVALID_PARAMETER
 	_close_game_peer()
+	last_game_address = address
+	last_game_port = port
+	last_game_player_number = assigned_player
 	player_number = assigned_player
 	if code != "" and token != "":
 		configure_room_session(address, port, code, assigned_player, token)
@@ -462,6 +494,16 @@ func connect_to_game_room(address: String, port: int, assigned_player: int, code
 	_game_deadline = _now() + CONNECT_TIMEOUT
 	print("Connecting to game room %s:%d (player %d)" % [address, port, player_number])
 	return OK
+
+
+func can_reconnect_to_last_game_room() -> bool:
+	return is_dedicated_server and is_valid_address(last_game_address) and last_game_port > 0 and last_game_player_number > 0
+
+
+func reconnect_to_last_game_room() -> int:
+	if not can_reconnect_to_last_game_room():
+		return ERR_UNAVAILABLE
+	return connect_to_game_room(last_game_address, last_game_port, last_game_player_number)
 
 
 # ============================================
@@ -576,6 +618,10 @@ func _on_peer_connected(id: int, source_peer: ENetMultiplayerPeer):
 	# Direct P2P has no room-authentication handshake.
 	_game_deadline = 0.0
 	opponent_peer_id = id
+	_heartbeat_active = true
+	_last_heartbeat_sent = _now()
+	# Give the opponent a grace period before we start checking heartbeat timeout
+	_last_heartbeat_received = _now() + HEARTBEAT_TIMEOUT * 0.5
 	connected.emit()
 	print("Opponent connected: %d" % id)
 
@@ -594,7 +640,41 @@ func _on_peer_disconnected(id: int, source_peer: ENetMultiplayerPeer):
 		return
 	print("Opponent disconnected")
 	opponent_peer_id = 0
+	_heartbeat_active = false
+	_last_heartbeat_received = 0.0
 	is_online = false
+	opponent_disconnected.emit(0)
+
+
+# Application-level heartbeat — called by the remote peer every HEARTBEAT_INTERVAL.
+# Receiving this proves the opponent process is still alive.
+@rpc("any_peer", "call_remote")
+func rpc_heartbeat() -> void:
+	_last_heartbeat_received = _now()
+
+
+func _send_heartbeat() -> void:
+	# In relay mode the server doesn't forward targeted rpc_id, so broadcast.
+	# In direct P2P, target the opponent directly to avoid hitting bystanders.
+	if is_dedicated_server:
+		rpc_heartbeat.rpc()
+	else:
+		rpc_heartbeat.rpc_id(opponent_peer_id)
+
+
+func _on_opponent_vanished() -> void:
+	print("Opponent vanished (heartbeat timeout or no disconnect signal) - treating as disconnected")
+	_heartbeat_active = false
+	opponent_peer_id = 0
+	_last_heartbeat_received = 0.0
+	if is_dedicated_server:
+		# The room server is still the transport. Keep it connected so the missing
+		# player can reclaim their stable slot and resume the existing match.
+		is_online = true
+	else:
+		_close_game_peer()
+		is_online = false
+	opponent_disconnected.emit(0)
 
 
 # ============================================
@@ -777,6 +857,7 @@ func rpc_intent_activate_skill(slot_index: int, skill_index: int, target_slot: i
 	EventBus.rpc_intent_activate_skill_received.emit(slot_index, skill_index, target_slot, player)
 
 
+
 @rpc("any_peer", "call_remote")
 func rpc_intent_end_turn(player: int):
 	EventBus.rpc_intent_end_turn_received.emit(player)
@@ -804,6 +885,9 @@ func close_connection():
 	_reconnect_deadline = 0.0
 	_reconnect_retry_at = 0.0
 	just_reconnected = false
+	_heartbeat_active = false
+	_last_heartbeat_sent = 0.0
+	_last_heartbeat_received = 0.0
 	_close_game_peer()
 	_close_lobby_peer()
 	is_online = false

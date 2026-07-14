@@ -4,6 +4,7 @@
 
 [node name="CardUI" type="Control" unique_id=1743504199]
 custom_minimum_size = Vector2(120, 160)
+clip_contents = true
 layout_mode = 3
 anchors_preset = 0
 offset_right = 120.0
@@ -12,7 +13,6 @@ mouse_filter = 1
 script = ExtResource("1_gf2xd")
 
 [node name="Background" type="Panel" parent="." unique_id=1299029643]
-custom_minimum_size = Vector2(120, 160)
 layout_mode = 0
 offset_right = 120.0
 offset_bottom = 160.0
@@ -36,6 +36,16 @@ offset_right = 58.0
 offset_bottom = 40.0
 theme_override_font_sizes/font_size = 11
 
+[node name="GenderLabel" type="Label" parent="."]
+layout_mode = 0
+offset_left = 72.0
+offset_top = 24.0
+offset_right = 114.0
+offset_bottom = 40.0
+horizontal_alignment = 2
+clip_text = true
+theme_override_font_sizes/font_size = 10
+
 [node name="HpLabel" type="Label" parent="." unique_id=291487909]
 layout_mode = 0
 offset_left = 6.0
@@ -58,7 +68,7 @@ offset_left = 6.0
 offset_top = 82.0
 offset_right = 114.0
 offset_bottom = 154.0
-theme_override_constants/separation = 2
+theme_override_constants/separation = 1
 
 [node name="NormalAtkButton" type="Button" parent="ActionButtons" unique_id=2123122470]
 layout_mode = 2
@@ -80,3 +90,11 @@ size_flags_vertical = 3
 text = "-"
 clip_text = true
 theme_override_font_sizes/font_size = 11
+
+[node name="Skill3Button" type="Button" parent="ActionButtons"]
+layout_mode = 2
+size_flags_vertical = 3
+text = "-"
+clip_text = true
+theme_override_font_sizes/font_size = 11
+visible = false

@@ -7,7 +7,7 @@ extends Node
 # room_server.tscn subprocess (one process per room).
 #
 # Port range can be overridden from the command line:
-#   godot --headless server.tscn -- --lobby-port=4567 --port-start=5001 --port-end=5020
+#   CardGame.exe --headless -- --lobby-port=4567 --port-start=5001 --port-end=5020
 # ============================================
 
 const DEFAULT_LOBBY_PORT := 4567
@@ -30,10 +30,24 @@ var _reap_accum: float = 0.0
 
 
 func _ready():
+	if _is_room_server_mode():
+		_start_room_server_mode()
+		return
 	_parse_args()
 	if not _start_lobby():
 		push_error("[SERVER] Failed to start lobby — shutting down")
 		get_tree().quit(1)
+
+
+func _is_room_server_mode() -> bool:
+	return OS.get_cmdline_user_args().has("--room-server")
+
+
+func _start_room_server_mode() -> void:
+	set_process(false)
+	var room := Node.new()
+	room.set_script(load("res://room_server.gd"))
+	add_child(room)
 
 
 func _parse_args() -> void:
@@ -253,15 +267,20 @@ func _handle_lobby_request(sender_id: int, json_str: String) -> void:
 
 
 func _spawn_room(code: String, port: int, p1_token: String, p2_token: String) -> int:
-	# Launch a dedicated relay subprocess for this room. Uses the running
-	# executable so it works both in-editor (editor binary + res://) and
-	# when exported. Returns the OS pid, or -1 on failure.
+	# Launch a dedicated relay subprocess for this room. Exported Godot builds
+	# cannot override the scene path on the command line, so the same server
+	# main scene switches into room mode via --room-server.
 	var exe := OS.get_executable_path()
 	var args := PackedStringArray([
-		"--headless", "res://room_server.tscn", "--",
-		"--room-port=%d" % port, "--room-code=%s" % code,
-		"--p1-token=%s" % p1_token, "--p2-token=%s" % p2_token,
+		"--headless",
 	])
+	if OS.has_feature("editor"):
+		args.append("res://server.tscn")
+	args.append_array(PackedStringArray([
+		"--",
+		"--room-server", "--room-port=%d" % port, "--room-code=%s" % code,
+		"--p1-token=%s" % p1_token, "--p2-token=%s" % p2_token,
+	]))
 	var pid := OS.create_process(exe, args)
 	return pid
 

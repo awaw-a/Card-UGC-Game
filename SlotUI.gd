@@ -7,10 +7,12 @@ extends Button
 signal slot_attack_requested
 signal slot_skill1_requested
 signal slot_skill2_requested
-signal card_dropped_here(card_data: CardData, dragging_card_ui: Control)
+signal slot_skill3_requested
+signal card_dropped_here(card_data, dragging_card_ui)
 
 var card_ui_scene = preload("res://CardUI.tscn")
 var current_card_ui = null
+var current_card_data: CardData = null
 var ui_scale: float = 1.0
 
 
@@ -30,12 +32,19 @@ func _ready():
 
 
 func set_card(card_data: CardData):
+	if card_data != null and card_data == current_card_data and current_card_ui and is_instance_valid(current_card_ui):
+		text = ""
+		current_card_ui.set_card(card_data)
+		apply_ui_scale(ui_scale)
+		return
+
 	clear_card()
 
 	if card_data == null:
 		text = "[ ]"
 		return
 
+	current_card_data = card_data
 	text = ""
 	var card_ui = card_ui_scene.instantiate()
 
@@ -46,6 +55,8 @@ func set_card(card_data: CardData):
 		card_ui.skill1_requested.connect(func(): slot_skill1_requested.emit())
 	if card_ui.has_signal("skill2_requested"):
 		card_ui.skill2_requested.connect(func(): slot_skill2_requested.emit())
+	if card_ui.has_signal("skill3_requested"):
+		card_ui.skill3_requested.connect(func(): slot_skill3_requested.emit())
 
 	add_child(card_ui)
 	card_ui.set_card(card_data)
@@ -58,6 +69,7 @@ func clear_card():
 	if current_card_ui and is_instance_valid(current_card_ui):
 		current_card_ui.queue_free()
 	current_card_ui = null
+	current_card_data = null
 
 
 func _can_drop_data(_position: Vector2, data) -> bool:

@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://bad7qgmv6feqq"]
 
-[ext_resource type="Script" path="res://MultiplayerMenu.gd" id="1_mm"]
+[ext_resource type="Script" uid="uid://b3d35ob6m5kay" path="res://MultiplayerMenu.gd" id="1_mm"]
 
 [node name="MultiplayerMenu" type="Control" unique_id=9000001]
 layout_mode = 3
@@ -25,17 +25,29 @@ theme_override_constants/separation = 16
 
 [node name="TitleLabel" type="Label" parent="CenterContainer/VBoxContainer" unique_id=9000004]
 layout_mode = 2
+theme_override_font_sizes/font_size = 24
 text = "Multiplayer"
 horizontal_alignment = 1
-theme_override_font_sizes/font_size = 24
 
 [node name="ServerButton" type="Button" parent="CenterContainer/VBoxContainer" unique_id=9000005]
 layout_mode = 2
 text = "Connect to Server"
 
+[node name="ServerHintLabel" type="Label" parent="CenterContainer/VBoxContainer" unique_id=9000008]
+layout_mode = 2
+text = "Use a room code through the server."
+horizontal_alignment = 1
+autowrap_mode = 3
+
 [node name="DirectButton" type="Button" parent="CenterContainer/VBoxContainer" unique_id=9000006]
 layout_mode = 2
 text = "Direct Connect (P2P)"
+
+[node name="DirectHintLabel" type="Label" parent="CenterContainer/VBoxContainer" unique_id=9000009]
+layout_mode = 2
+text = "Best for two computers on the same LAN."
+horizontal_alignment = 1
+autowrap_mode = 3
 
 [node name="BackButton" type="Button" parent="CenterContainer/VBoxContainer" unique_id=9000007]
 layout_mode = 2

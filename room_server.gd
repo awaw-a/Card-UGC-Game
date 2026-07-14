@@ -7,7 +7,7 @@ extends Node
 # server-relay so the two clients' broadcast RPCs reach each other.
 #
 # Command line:
-#   godot --headless room_server.tscn -- --room-port=5001 --room-code=1234 \
+#   CardGame.exe --headless -- --room-server --room-port=5001 --room-code=1234 \
 #     --p1-token=<token> --p2-token=<token>
 # ============================================
 

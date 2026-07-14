@@ -196,16 +196,16 @@ func _show_battle_config_popup(cards: Array) -> void:
 
 	# Row: Mana per turn
 	var mana_row := _make_config_spin_row(box, "每回合回费:", PlayerData.battle_config.get("mana_per_turn", 2), 0, 10)
-	
+
 	# Row: Draw per turn
 	var draw_row := _make_config_spin_row(box, "每回合抽牌:", PlayerData.battle_config.get("draw_per_turn", 2), 1, 6)
-	
+
 	# Row: Starting HP
 	var hp_row := _make_config_spin_row(box, "初始血量:", PlayerData.battle_config.get("starting_hp", 30), 1, 99)
-	
+
 	# Row: Second player extra cards
 	var extra_cards_row := _make_config_spin_row(box, "后手额外卡牌:", PlayerData.battle_config.get("second_extra_cards", 0), 0, 5)
-	
+
 	# Row: Second player extra mana
 	var extra_mana_row := _make_config_spin_row(box, "后手额外圣水:", PlayerData.battle_config.get("second_extra_mana", 0), 0, 10)
 
@@ -237,7 +237,7 @@ func _show_battle_config_popup(cards: Array) -> void:
 		_start_battle_with_cards(cards)
 	)
 	btn_row.add_child(start_btn)
-	
+
 	var cancel_btn := Button.new()
 	cancel_btn.text = Locale.t("common.back")
 	cancel_btn.custom_minimum_size = Vector2(140, 36)

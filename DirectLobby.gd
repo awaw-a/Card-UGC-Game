@@ -184,6 +184,7 @@ func _ready():
 
 
 func _on_host_pressed():
+	NetworkManager.clear_room_session()
 	status_label.text = Locale.t("lobby.hosting")
 	host_btn.disabled = true
 	join_btn.disabled = true
@@ -197,6 +198,7 @@ func _on_host_pressed():
 
 
 func _on_join_pressed():
+	NetworkManager.clear_room_session()
 	var ip: String = ip_input.text.strip_edges()
 	if ip == "":
 		ip = "127.0.0.1"

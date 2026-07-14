@@ -17,6 +17,9 @@ const STRINGS := {
 	"zh": {
 		# MainMenu
 		"menu.start": "开始战斗",
+		"menu.resume": "继续对局",
+		"menu.reconnecting": "正在重连...",
+		"menu.reconnect_failed": "重连失败，点击重试",
 		"menu.battle_mode": "选择战斗模式",
 		"menu.hotseat": "热座对战",
 		"menu.practice": "单人练习",
@@ -114,6 +117,7 @@ const STRINGS := {
 		"battle.my_info": "我方信息",
 		"battle.switching": "切换中...",
 		"battle.waiting": "等待中...",
+		"battle.reconnecting": "对手掉线，等待重连...",
 		"battle.draw_pile_title": "牌库（%d 张）",
 		"battle.discard_pile_title": "弃牌堆（%d 张）",
 		"battle.close": "关闭",
@@ -366,6 +370,9 @@ const STRINGS := {
 	},
 	"en": {
 		"menu.start": "Start",
+		"menu.resume": "Resume Battle",
+		"menu.reconnecting": "Reconnecting...",
+		"menu.reconnect_failed": "Reconnect failed - retry",
 		"menu.battle_mode": "Choose Battle Mode",
 		"menu.hotseat": "Hotseat Battle",
 		"menu.practice": "Solo Practice",
@@ -458,6 +465,7 @@ const STRINGS := {
 		"battle.my_info": "My Info",
 		"battle.switching": "Switching...",
 		"battle.waiting": "Waiting...",
+		"battle.reconnecting": "Opponent disconnected - waiting for reconnect...",
 		"battle.draw_pile_title": "Draw Pile (%d cards)",
 		"battle.discard_pile_title": "Discard Pile (%d cards)",
 		"battle.close": "Close",

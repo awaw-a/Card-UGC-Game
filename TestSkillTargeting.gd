@@ -347,8 +347,8 @@ func _test_new_effect_pack() -> void:
 		_fail("lifesteal plus max HP gain should heal caster to new max HP")
 	if game.player_field.current_mana != 10:
 		_fail("gain mana should increase current player's mana up to max")
-	if caster.atk != 3 or caster.base_atk != 3:
-		_fail("gain attack should permanently increase current and base attack")
+	if caster.atk != 1 or caster.base_atk != 1 or caster.field_atk_bonus != 2 or caster.effective_atk() != 3:
+		_fail("gain attack should add a field-only permanent bonus without changing base attack")
 	if caster.max_hp != 13 or caster.base_max_hp != 13:
 		_fail("gain max HP should permanently increase current and base max HP")
 	var high_hp_enemy := _card("High HP Enemy", 10, 0)

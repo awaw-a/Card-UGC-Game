@@ -188,7 +188,7 @@ func _on_viewport_size_changed() -> void:
 # ============================================
 
 func _view_player() -> int:
-	if NetworkManager.is_online:
+	if NetworkManager.is_online or my_player in [1, 2]:
 		return my_player
 	if PlayerData.battle_mode == "practice":
 		return 1
@@ -273,6 +273,12 @@ func _broadcast_authority_state(label: String) -> void:
 		NetworkManager.rpc_authority_state.rpc(state)
 
 
+func _commit_authority_state(label: String) -> void:
+	if NetworkManager.is_online and NetworkManager.is_authority():
+		game.state_revision += 1
+	_broadcast_authority_state(label)
+
+
 func _apply_authority_state(state: Dictionary, label: String = "authority") -> void:
 	game.apply_initial_state(state)
 	_restore_local_art_paths()
@@ -298,7 +304,7 @@ func _apply_authority_state(state: Dictionary, label: String = "authority") -> v
 
 
 func _restore_local_art_paths() -> void:
-	if not NetworkManager.is_online or NetworkManager.is_authority():
+	if not NetworkManager.is_online:
 		return
 	var local_art_by_key := {}
 	# Opponent arts were downloaded during the lobby and saved to local net_arts
@@ -310,6 +316,9 @@ func _restore_local_art_paths() -> void:
 			local_art_by_key[_card_identity_key(card)] = card.art_path
 	# Our own cards take precedence on identity collisions.
 	for card in PlayerData.battle_deck:
+		if card is CardData and card.art_path != "":
+			local_art_by_key[_card_identity_key(card)] = card.art_path
+	for card in PlayerData.card_library:
 		if card is CardData and card.art_path != "":
 			local_art_by_key[_card_identity_key(card)] = card.art_path
 	_restore_art_paths_in_cards(game.player_hand, local_art_by_key)
@@ -346,11 +355,6 @@ func _card_identity_key(card: CardData) -> String:
 # ============================================
 # Init
 # ============================================
-
-var _disconnect_overlay: Control
-var _disconnect_reconnect_btn: Button
-var _disconnect_back_btn: Button
-
 
 func _ready():
 	game = load("res://GameState.gd").new()
@@ -421,8 +425,14 @@ func _ready():
 	get_viewport().size_changed.connect(_on_viewport_size_changed)
 	update_entire_screen()
 	_play_opening_draw_feedback.call_deferred()
-	if NetworkManager.is_online and not NetworkManager.is_authority():
-		NetworkManager.rpc_request_initial_state.rpc()
+	if NetworkManager.is_online:
+		if NetworkManager.just_reconnected:
+			_local_slot_rejoined = true
+			match_paused = true
+			update_entire_screen()
+			call_deferred("_request_resume_state")
+		elif not NetworkManager.is_authority():
+			NetworkManager.rpc_request_initial_state.rpc()
 
 
 func _on_game_draw_cards(amount: int):
@@ -2186,42 +2196,12 @@ func _show_result(result: String):
 	battle_finished = true
 	practice_ai_running = false
 	cancel_attack()
+	NetworkManager.clear_room_session()
 	if mana_label:
 		mana_label.text = "[ %s ]" % _result_title(result)
 	if end_turn_button:
 		end_turn_button.disabled = true
 	_show_battle_result_page(result)
-
-
-func _on_opponent_disconnected() -> void:
-	if battle_finished:
-		return
-	battle_finished = true
-	practice_ai_running = false
-	cancel_attack()
-	remote_arrow_source = -1
-	remote_arrow_target = -1
-	if attack_arrow:
-		attack_arrow.visible = false
-	_show_combat_broadcast("对手已断开连接！" if Locale.language == "zh" else "Opponent disconnected!")
-	if mana_label:
-		mana_label.text = "[ %s ]" % Locale.t("result.connection_lost_title")
-	if end_turn_button:
-		end_turn_button.disabled = true
-	_show_disconnect_result_page()
-
-
-func _on_opponent_reconnected() -> void:
-	if not _disconnect_overlay:
-		return
-	_disconnect_overlay.queue_free()
-	_disconnect_overlay = null
-	_disconnect_reconnect_btn = null
-	_disconnect_back_btn = null
-	battle_finished = false
-	my_player = NetworkManager.player_number
-	update_entire_screen()
-
 
 # ============================================
 # Skill interaction handlers (view discard/deck, zero cost)
@@ -2487,135 +2467,6 @@ func _show_zero_cost_selection_popup(candidates: Array, count: int, hand: Array 
 	box.add_child(close_btn)
 
 
-func _show_disconnect_result_page() -> void:
-	var old_layer := $CanvasLayer.get_node_or_null("BattleResultLayer")
-	if old_layer:
-		old_layer.queue_free()
-	var layer := Control.new()
-	layer.name = "BattleResultLayer"
-	_disconnect_overlay = layer
-	layer.anchor_right = 1.0
-	layer.anchor_bottom = 1.0
-	layer.mouse_filter = Control.MOUSE_FILTER_STOP
-	$CanvasLayer.add_child(layer)
-	$CanvasLayer.move_child(layer, $CanvasLayer.get_child_count() - 1)
-
-	var bg := ColorRect.new()
-	bg.anchor_right = 1.0
-	bg.anchor_bottom = 1.0
-	bg.color = Color(0.015, 0.018, 0.026, 0.86)
-	layer.add_child(bg)
-
-	var center := CenterContainer.new()
-	center.anchor_right = 1.0
-	center.anchor_bottom = 1.0
-	layer.add_child(center)
-
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(540, 320) * _ui_scale()
-	UITheme.apply_panel(panel, "gold")
-	center.add_child(panel)
-
-	var margin := MarginContainer.new()
-	margin.add_theme_constant_override("margin_left", 32)
-	margin.add_theme_constant_override("margin_right", 32)
-	margin.add_theme_constant_override("margin_top", 28)
-	margin.add_theme_constant_override("margin_bottom", 28)
-	panel.add_child(margin)
-
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 18)
-	margin.add_child(box)
-
-	var title := Label.new()
-	title.text = Locale.t("result.connection_lost_title")
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	UITheme.apply_title(title, 36)
-	box.add_child(title)
-
-	var body := Label.new()
-	body.text = Locale.t("result.connection_lost_body")
-	body.name = "BodyLabel"
-	body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	UITheme.apply_label(body, true)
-	body.add_theme_font_size_override("font_size", 18)
-	box.add_child(body)
-
-	var button_row := HBoxContainer.new()
-	button_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	button_row.add_theme_constant_override("separation", 18)
-	box.add_child(button_row)
-
-	var reconnect_btn := Button.new()
-	reconnect_btn.text = Locale.t("result.reconnect")
-	reconnect_btn.custom_minimum_size = Vector2(150, 48)
-	reconnect_btn.disabled = not NetworkManager.can_reconnect_to_last_game_room()
-	UITheme.apply_button(reconnect_btn, "primary")
-	reconnect_btn.pressed.connect(_on_disconnect_reconnect_pressed)
-	button_row.add_child(reconnect_btn)
-	_disconnect_reconnect_btn = reconnect_btn
-
-	var multiplayer_btn := Button.new()
-	multiplayer_btn.text = Locale.t("result.back_multiplayer")
-	multiplayer_btn.custom_minimum_size = Vector2(170, 48)
-	UITheme.apply_button(multiplayer_btn, "secondary")
-	multiplayer_btn.pressed.connect(_on_disconnect_back_multiplayer_pressed)
-	button_row.add_child(multiplayer_btn)
-	_disconnect_back_btn = multiplayer_btn
-
-	var menu_btn := Button.new()
-	menu_btn.text = Locale.t("result.back_menu")
-	menu_btn.custom_minimum_size = Vector2(160, 48)
-	UITheme.apply_button(menu_btn, "secondary")
-	menu_btn.pressed.connect(_on_result_back_menu_pressed)
-	button_row.add_child(menu_btn)
-
-	layer.modulate.a = 0.0
-	panel.scale = Vector2(0.88, 0.88)
-	var twn := create_tween()
-	twn.set_parallel(true)
-	twn.tween_property(layer, "modulate:a", 1.0, 0.20)
-	twn.tween_property(panel, "scale", Vector2.ONE, 0.24).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
-
-
-func _on_disconnect_reconnect_pressed() -> void:
-	var err := NetworkManager.reconnect_to_last_game_room()
-	if err != OK:
-		if _disconnect_overlay:
-			var body := _disconnect_overlay.get_node_or_null("CenterContainer/PanelContainer/MarginContainer/VBoxContainer/BodyLabel")
-			if body:
-				body.text = Locale.t("result.reconnect_failed")
-			if _disconnect_reconnect_btn:
-				_disconnect_reconnect_btn.disabled = true
-		return
-	if _disconnect_reconnect_btn:
-		_disconnect_reconnect_btn.disabled = true
-	if _disconnect_back_btn:
-		_disconnect_back_btn.disabled = true
-	if _disconnect_overlay:
-		var body := _disconnect_overlay.get_node_or_null("CenterContainer/PanelContainer/MarginContainer/VBoxContainer/BodyLabel")
-		if body:
-			body.text = Locale.t("result.reconnecting")
-
-
-func _on_reconnect_failed() -> void:
-	if not _disconnect_overlay:
-		return
-	if _disconnect_reconnect_btn:
-		_disconnect_reconnect_btn.disabled = false
-	if _disconnect_back_btn:
-		_disconnect_back_btn.disabled = false
-	var body := _disconnect_overlay.get_node_or_null("CenterContainer/PanelContainer/MarginContainer/VBoxContainer/BodyLabel")
-	if body:
-		body.text = Locale.t("result.reconnect_failed")
-
-
-func _on_disconnect_back_multiplayer_pressed() -> void:
-	NetworkManager.close_connection()
-	get_tree().change_scene_to_file("res://MultiplayerMenu.tscn")
-
-
 func _result_winner_player(result: String) -> int:
 	if result == "p1_wins":
 		return 1
@@ -2793,6 +2644,8 @@ func update_entire_screen():
 	if status_toggle_button:
 		status_toggle_button.visible = NetworkManager.is_online
 		status_toggle_button.text = Locale.t("battle.enemy_info") if not show_enemy_status else Locale.t("battle.my_info")
+	if end_turn_button:
+		end_turn_button.disabled = match_paused or not game.is_player_turn or (NetworkManager.is_online and game.current_player != my_player)
 
 	var my_field = _my_field()
 	var their_field = _their_field()
@@ -2871,8 +2724,14 @@ var _charm_popup_active: bool = false
 # Authority collects hp_changed events during an action, then ships them in the
 # state broadcast so the non-authority client can replay floating text.
 var _pending_hp_events: Array = []
+var match_paused: bool = false
+var _resume_waiting_for_player: int = 0
+var _resume_expected_revision: int = -1
+var _local_slot_rejoined: bool = false
 
 func is_my_turn() -> bool:
+	if match_paused:
+		return false
 	if not NetworkManager.is_online:
 		if PlayerData.battle_mode == "practice":
 			return game.current_player == 1 and not practice_ai_running
@@ -2904,9 +2763,107 @@ func _init_network():
 	EventBus.rpc_intent_move_received.connect(_on_rpc_intent_move)
 	EventBus.rpc_targeting_arrow_received.connect(_on_rpc_targeting_arrow)
 	EventBus.rpc_splash_received.connect(_on_rpc_splash)
+	EventBus.rpc_resume_state_requested.connect(_on_rpc_resume_state_requested)
+	EventBus.rpc_resume_state_received.connect(_on_rpc_resume_state_received)
+	EventBus.rpc_resume_state_ack_received.connect(_on_rpc_resume_state_ack)
+	EventBus.rpc_resume_complete_received.connect(_on_rpc_resume_complete)
 	NetworkManager.opponent_disconnected.connect(_on_opponent_disconnected)
-	NetworkManager.connected.connect(_on_opponent_reconnected)
-	NetworkManager.game_connection_failed.connect(_on_reconnect_failed)
+	NetworkManager.reconnect_started.connect(_on_reconnect_started)
+	NetworkManager.reconnect_transport_ready.connect(_on_reconnect_transport_ready)
+	NetworkManager.reconnect_failed.connect(_on_reconnect_failed)
+
+
+func _pause_for_reconnect() -> void:
+	match_paused = true
+	_resume_waiting_for_player = 0
+	_resume_expected_revision = -1
+	cancel_attack()
+	remote_arrow_source = -1
+	remote_arrow_target = -1
+	if end_turn_button:
+		end_turn_button.disabled = true
+	update_entire_screen()
+
+
+func _on_opponent_disconnected(_player: int) -> void:
+	if NetworkManager.is_dedicated_server or NetworkManager.has_saved_room_session():
+		_pause_for_reconnect()
+		return
+	# Direct P2P has no stable room process or reconnect token to recover from.
+	NetworkManager.close_connection()
+	get_tree().change_scene_to_file.call_deferred("res://MultiplayerMenu.tscn")
+
+
+func _on_reconnect_started() -> void:
+	_pause_for_reconnect()
+
+
+func _on_reconnect_transport_ready() -> void:
+	my_player = NetworkManager.player_number
+	_local_slot_rejoined = true
+	_pause_for_reconnect()
+	call_deferred("_request_resume_state")
+
+
+func _on_reconnect_failed(_reason: String) -> void:
+	NetworkManager.clear_room_session()
+	get_tree().change_scene_to_file.call_deferred("res://MainMenu.tscn")
+
+
+func _request_resume_state() -> void:
+	if not NetworkManager.is_online or my_player not in [1, 2]:
+		return
+	match_paused = true
+	NetworkManager.rpc_request_resume_state.rpc(my_player, game.state_revision)
+	update_entire_screen()
+
+
+func _on_rpc_resume_state_requested(requesting_player: int, known_revision: int) -> void:
+	if not NetworkManager.is_online or requesting_player == my_player:
+		return
+	# Normally only one side rejoined, so the continuously-online side is always
+	# the recovery source. If both transports dropped together, both sides are
+	# marked as rejoined and the higher committed revision wins deterministically.
+	if _local_slot_rejoined and game.state_revision < known_revision:
+		return
+	_pause_for_reconnect()
+	_resume_waiting_for_player = requesting_player
+	_resume_expected_revision = game.state_revision
+	NetworkManager.rpc_resume_state.rpc(game.export_initial_state(), my_player, requesting_player)
+
+
+func _on_rpc_resume_state_received(state: Dictionary, source_player: int, target_player: int) -> void:
+	if target_player != my_player or source_player == my_player:
+		return
+	match_paused = true
+	_apply_authority_state(state, "reconnect recovery")
+	_resume_expected_revision = game.state_revision
+	NetworkManager.rpc_resume_state_ack.rpc(my_player, game.state_revision)
+
+
+func _on_rpc_resume_state_ack(player: int, revision: int) -> void:
+	if player != _resume_waiting_for_player or revision != _resume_expected_revision:
+		return
+	_resume_waiting_for_player = 0
+	_resume_expected_revision = -1
+	_finish_resume()
+	NetworkManager.rpc_resume_complete.rpc(revision)
+
+
+func _on_rpc_resume_complete(revision: int) -> void:
+	if revision != game.state_revision:
+		return
+	_finish_resume()
+
+
+func _finish_resume() -> void:
+	match_paused = false
+	_local_slot_rejoined = false
+	NetworkManager.just_reconnected = false
+	NetworkManager.opponent_peer_id = 1
+	if end_turn_button:
+		end_turn_button.disabled = not game.is_player_turn or not is_my_turn()
+	update_entire_screen()
 
 
 func _sync_targeting_state():
@@ -2970,11 +2927,14 @@ func _on_rpc_initial_state_requested(_peer_id: int):
 func _on_rpc_authority_state(state: Dictionary):
 	if NetworkManager.is_authority():
 		return
+	var incoming_revision := int(state.get("state_revision", 0))
+	if incoming_revision < game.state_revision:
+		return
 	_apply_authority_state(state, "remote authority")
 
 
 func _host_apply_summon(hand_index: int, slot_index: int, player: int) -> void:
-	if not NetworkManager.is_authority() or player != game.current_player:
+	if match_paused or not NetworkManager.is_authority() or player != game.current_player:
 		return
 	var hand = _hand_for_player(player)
 	if hand_index < 0 or hand_index >= hand.size():
@@ -2990,11 +2950,11 @@ func _host_apply_summon(hand_index: int, slot_index: int, player: int) -> void:
 	# nothing auto-fires here. The summoned_this_turn flag travels in the state.
 	_refresh_hand_ui()
 	update_entire_screen()
-	_broadcast_authority_state("summon")
+	_commit_authority_state("summon")
 
 
 func _host_apply_summon_skill(slot_index: int, skill_index: int, target_slot: int, player: int) -> void:
-	if not NetworkManager.is_authority() or player != game.current_player:
+	if match_paused or not NetworkManager.is_authority() or player != game.current_player:
 		return
 	var source_card: CardData = _field_for_player(player).slots[slot_index]
 	var target_card: CardData = _field_for_player(_opponent_of_player(player)).slots[target_slot] if target_slot >= 0 else null
@@ -3016,13 +2976,13 @@ func _host_apply_summon_skill(slot_index: int, skill_index: int, target_slot: in
 	_refresh_hand_ui()
 	update_entire_screen()
 	if _check_and_show_game_over():
-		_broadcast_authority_state("game over")
+		_commit_authority_state("game over")
 		return
-	_broadcast_authority_state("summon skill")
+	_commit_authority_state("summon skill")
 
 
 func _host_apply_attack(source_slot: int, target_slot: int, player: int) -> void:
-	if not NetworkManager.is_authority() or player != game.current_player:
+	if match_paused or not NetworkManager.is_authority() or player != game.current_player:
 		return
 	var attacker: CardData = _field_for_player(player).slots[source_slot]
 	var victim: CardData = _field_for_player(_opponent_of_player(player)).slots[target_slot]
@@ -3045,13 +3005,13 @@ func _host_apply_attack(source_slot: int, target_slot: int, player: int) -> void
 	_refresh_hand_ui()
 	update_entire_screen()
 	if _check_and_show_game_over():
-		_broadcast_authority_state("game over")
+		_commit_authority_state("game over")
 		return
-	_broadcast_authority_state("attack")
+	_commit_authority_state("attack")
 
 
 func _host_apply_skill(slot_index: int, skill_index: int, target_slot: int, player: int) -> void:
-	if not NetworkManager.is_authority() or player != game.current_player:
+	if match_paused or not NetworkManager.is_authority() or player != game.current_player:
 		return
 	var source_card: CardData = _field_for_player(player).slots[slot_index]
 	var target_card: CardData = _field_for_player(_opponent_of_player(player)).slots[target_slot] if target_slot >= 0 else null
@@ -3073,13 +3033,13 @@ func _host_apply_skill(slot_index: int, skill_index: int, target_slot: int, play
 	_refresh_hand_ui()
 	update_entire_screen()
 	if _check_and_show_game_over():
-		_broadcast_authority_state("game over")
+		_commit_authority_state("game over")
 		return
-	_broadcast_authority_state("activate skill")
+	_commit_authority_state("activate skill")
 
 
 func _host_apply_parasite(hand_index: int, target_player: int, target_slot: int, player: int) -> void:
-	if not NetworkManager.is_authority() or player != game.current_player:
+	if match_paused or not NetworkManager.is_authority() or player != game.current_player:
 		return
 	var hand := _hand_for_player(player)
 	var parasite_card: CardData = hand[hand_index] if hand_index >= 0 and hand_index < hand.size() else null
@@ -3097,11 +3057,11 @@ func _host_apply_parasite(hand_index: int, target_player: int, target_slot: int,
 	_finish_action_broadcast()
 	_refresh_hand_ui()
 	update_entire_screen()
-	_broadcast_authority_state("attach parasite")
+	_commit_authority_state("attach parasite")
 
 
 func _host_apply_cast(hand_index: int, skill_index: int, target_slot: int, player: int) -> void:
-	if not NetworkManager.is_authority() or player != game.current_player:
+	if match_paused or not NetworkManager.is_authority() or player != game.current_player:
 		return
 	var hand := _hand_for_player(player)
 	var spell_card: CardData = hand[hand_index] if hand_index >= 0 and hand_index < hand.size() else null
@@ -3122,13 +3082,13 @@ func _host_apply_cast(hand_index: int, skill_index: int, target_slot: int, playe
 	_refresh_hand_ui()
 	update_entire_screen()
 	if _check_and_show_game_over():
-		_broadcast_authority_state("game over")
+		_commit_authority_state("game over")
 		return
-	_broadcast_authority_state("cast spell")
+	_commit_authority_state("cast spell")
 
 
 func _host_apply_discard(location: String, index: int, player: int) -> void:
-	if not NetworkManager.is_authority() or player != game.current_player:
+	if match_paused or not NetworkManager.is_authority() or player != game.current_player:
 		return
 	var card: CardData = null
 	if location == "hand":
@@ -3151,11 +3111,11 @@ func _host_apply_discard(location: String, index: int, player: int) -> void:
 	_play_discard_feedback()
 	_record_feedback_event("broadcast_text", player, -1, {"text_key": "tip.discard_mana"})
 	_record_feedback_event("discard", player, -1)
-	_broadcast_authority_state("discard")
+	_commit_authority_state("discard")
 
 
 func _host_apply_move(source_slot: int, target_slot: int, player: int) -> void:
-	if not NetworkManager.is_authority() or player != game.current_player:
+	if match_paused or not NetworkManager.is_authority() or player != game.current_player:
 		return
 	var field = _field_for_player(player)
 	if source_slot < 0 or source_slot >= field.slots.size() or target_slot < 0 or target_slot >= field.slots.size():
@@ -3164,11 +3124,11 @@ func _host_apply_move(source_slot: int, target_slot: int, player: int) -> void:
 	field.slots[target_slot] = field.slots[source_slot]
 	field.slots[source_slot] = displaced
 	update_entire_screen()
-	_broadcast_authority_state("move")
+	_commit_authority_state("move")
 
 
 func _host_apply_end_turn(player: int) -> void:
-	if not NetworkManager.is_authority() or player != game.current_player:
+	if match_paused or not NetworkManager.is_authority() or player != game.current_player:
 		return
 	remote_arrow_source = -1
 	var result = game.end_player_turn()
@@ -3176,14 +3136,13 @@ func _host_apply_end_turn(player: int) -> void:
 	end_turn_button.disabled = true
 	update_entire_screen()
 	if _check_and_show_game_over():
-		_broadcast_authority_state("game over")
+		_commit_authority_state("game over")
 		return
-	await get_tree().create_timer(0.3).timeout
 	game.start_new_turn()
 	_refresh_hand_ui()
 	end_turn_button.disabled = false
 	update_entire_screen()
-	_broadcast_authority_state("end turn")
+	_commit_authority_state("end turn")
 
 
 func _spell_intent_source(hand_index: int) -> int:
@@ -3331,14 +3290,24 @@ func _update_wait_hint_layout() -> void:
 
 
 func _toggle_turn_cover():
-	var show = (NetworkManager.is_online and not is_my_turn()) or (PlayerData.battle_mode == "practice" and game.current_player == 2)
+	var overlay = $CanvasLayer.get_node_or_null("TurnOverlay")
+	if not turn_cover and not turn_wait_hint and not overlay:
+		return
+	var show = match_paused or (NetworkManager.is_online and not is_my_turn()) or (PlayerData.battle_mode == "practice" and game.current_player == 2)
 	if turn_cover:
 		turn_cover.visible = show
 		$CanvasLayer.move_child(turn_cover, max(0, $CanvasLayer.get_child_count() - 2))
+		if turn_cover.get_child_count() > 0 and turn_cover.get_child(0) is Label:
+			turn_cover.get_child(0).text = Locale.t("battle.reconnecting") if match_paused else Locale.t("battle.waiting")
 	if turn_wait_hint:
 		_update_wait_hint_layout()
+		var label := turn_wait_hint.get_node_or_null("Label")
+		if label:
+			label.text = Locale.t("battle.reconnecting") if match_paused else Locale.t("battle.waiting")
 		turn_wait_hint.visible = show
 		$CanvasLayer.move_child(turn_wait_hint, $CanvasLayer.get_child_count() - 1)
+	if overlay:
+		overlay.visible = show
 
 
 # ============================================
